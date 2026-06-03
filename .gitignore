@@ -1,0 +1,14 @@
+config.yaml
+config.yaml.example
+*.pyc
+*.pyo
+.env
+cache/
+*.sqlite
+*.db
+.DS_Store
+venv/
+.venv/
+*.egg-info/
+dist/
+build/

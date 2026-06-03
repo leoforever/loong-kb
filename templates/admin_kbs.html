@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}知识库配置 - 龙芯知识库{% endblock %}
+{% block content %}
+<div class="page-main">
+        <div class="page-header">
+            <div>
+                <h1 class="page-title">知识库配置</h1>
+                <p style="color:#888; margin-top:4px; font-size:14px;">管理 Dify 知识库配置</p>
+            </div>
+            <button class="btn btn-primary" onclick="showCreateKB()">+ 添加知识库</button>
+            <button class="btn btn-secondary" style="margin-left:8px;" onclick="syncKBs()">🔄 同步 Dify</button>
+        </div>
+
+<div class="card">
+    <h3 class="section-title">知识库列表</h3>
+    <table>
+        <thead><tr><th>ID</th><th>名称</th><th>描述</th><th>Dify Dataset ID</th><th>状态</th><th>操作</th></tr></thead>
+        <tbody>
+        {% for kb in kbs %}
+        <tr>
+            <td style="color:#999;">{{ kb.kb_id }}</td>
+            <td><strong>{{ kb.kb_name }}</strong></td>
+            <td style="color:#888; font-size:14px;">{{ kb.description or '-' }}</td>
+            <td><code style="font-size:12px; background:#f5f5f5; padding:2px 6px; border-radius:4px;">{{ kb.dify_dataset_id }}</code></td>
+            <td>
+                {% if kb.is_active %}
+                <span class="tag" style="background:#efe; color:#060;">已启用</span>
+                {% else %}
+                <span class="tag" style="background:#fee; color:#c00;">已禁用</span>
+                {% endif %}
+            </td>
+            <td>
+                {% if edit_kb_id == kb.kb_id %}
+                <form method="post" action="/admin/kbs/{{ kb.kb_id }}" style="display:inline-flex; gap:6px; align-items:center;">
+                    <input name="kb_name" value="{{ kb.kb_name }}" required style="padding:4px 8px; border:1px solid #ddd; border-radius:4px; font-size:13px; width:120px;">
+                    <input name="description" value="{{ kb.description or '' }}" placeholder="描述" style="padding:4px 8px; border:1px solid #ddd; border-radius:4px; font-size:13px; width:140px;">
+                    <input name="dify_dataset_id" value="{{ kb.dify_dataset_id }}" required style="padding:4px 8px; border:1px solid #ddd; border-radius:4px; font-size:13px; width:200px;">
+                    <button type="submit" class="btn btn-primary" style="padding:4px 12px; font-size:12px;">保存</button>
+                    <a href="/admin/kbs" class="btn btn-secondary" style="padding:4px 12px; font-size:12px;">取消</a>
+                </form>
+                {% else %}
+                <a href="/admin/kbs?edit={{ kb.kb_id }}" class="btn btn-outline" style="padding:4px 12px; font-size:12px;">编辑</a>
+                <button class="btn btn-danger" style="padding:4px 12px; font-size:12px;" onclick="deleteKB({{ kb.kb_id }})">删除</button>
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<!-- 添加知识库弹窗 -->
+<div id="createKBModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:200; justify-content:center; align-items:center;">
+    <div style="background:white; border-radius:12px; padding:32px; width:520px; max-width:90%;">
+        <h3 style="margin-bottom:20px; font-size:18px;">添加知识库</h3>
+        <form method="post" action="/admin/kbs">
+            <div class="form-group"><label>知识库名称</label><input name="kb_name" required placeholder="如：龙芯产品手册"></div>
+            <div class="form-group"><label>描述</label><input name="description" placeholder="简要描述（可选）"></div>
+            <div class="form-group"><label>Dify Dataset ID</label><input name="dify_dataset_id" placeholder="从 Dify 知识库 URL 或 API 中获取" required></div>
+            <p style="color:#999; font-size:12px; margin-bottom:16px;">
+                Dify 连接信息（URL/Key）从 config.yaml 读取，修改请联系管理员。
+            </p>
+            <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:24px;">
+                <button type="button" class="btn btn-secondary" onclick="hideModal('createKBModal')">取消</button>
+                <button type="submit" class="btn btn-primary">保存</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function showCreateKB() { document.getElementById('createKBModal').style.display = 'flex'; }
+function syncKBs() {
+    if (!confirm('将从 Dify API 同步知识库列表，是否继续？')) return;
+    fetch('/admin/kbs/sync', {method:'POST'}).then(r => location.reload());
+}
+function deleteKB(kbId) {
+    if (!confirm('确认删除该知识库？')) return;
+    fetch(`/admin/kbs/${kbId}/delete`, {method:'POST'}).then(r => location.reload());
+}
+function hideModal(id) { document.getElementById(id).style.display = 'none'; }
+document.getElementById('createKBModal').addEventListener('click', function(e) { if(e.target===this) hideModal('createKBModal'); });
+</script>
+{% endblock %}

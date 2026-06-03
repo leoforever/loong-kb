@@ -1,0 +1,221 @@
+{% extends "base.html" %}
+{% block title %}智能问答 - 龙芯知识库{% endblock %}
+{% block extra_style %}
+<style>
+.logo-svg { width: 48px; height: 48px; }
+.chat-container { width: 100%; }
+.chat-box { background: white; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.1); overflow: hidden; }
+.messages { flex: 1; overflow-y: auto; max-height: 60vh; min-height: 400px; padding: 24px; }
+.message { margin-bottom: 16px; padding: 14px 18px; border-radius: 12px; line-height: 1.7; font-size: 14px; }
+.message.user { background: #fff0f0; margin-left: 60px; border-bottom-right-radius: 4px; }
+.message.assistant { background: #f8f8f8; margin-right: 60px; border-bottom-left-radius: 4px; }
+.message .role { font-size: 12px; font-weight: 600; color: #CC0000; margin-bottom: 6px; }
+.message.assistant .role { color: #666; }
+.message .content { color: #333; white-space: pre-wrap; }
+.message .kb-sources { font-size: 12px; color: #999; margin-top: 8px; padding-top: 8px; border-top: 1px dashed #ddd; }
+.empty-state { text-align: center; padding: 60px 40px; color: #888; }
+.empty-state .icon { font-size: 48px; margin-bottom: 16px; }
+.input-area { display: flex; gap: 12px; padding: 16px 24px; border-top: 1px solid #f0f0f0; background: #fafafa; }
+.input-area textarea { flex: 1; padding: 12px 16px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; resize: none; min-height: 48px; max-height: 120px; font-family: inherit; }
+.input-area textarea:focus { outline: none; border-color: #CC0000; }
+.loading { text-align: center; padding: 24px; color: #888; }
+.loading::after { content: '...'; animation: dots 1.5s infinite; }
+@keyframes dots { 0%{content:'.'} 33%{content:'..'} 66%{content:'...'} }
+.kb-badge { display: inline-block; background: #fff0f0; color: #CC0000; padding: 2px 8px; border-radius: 4px; font-size: 11px; margin: 2px; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="page-main">
+    <div class="chat-container">
+        <div style="background:white; border-radius:12px; box-shadow:0 2px 8px rgba(0,0,0,0.08); padding:16px 24px; margin-bottom:16px; display:flex; align-items:center; gap:16px;">
+            <svg class="logo-svg" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                    <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stop-color="#FF5555"/>
+                        <stop offset="100%" stop-color="#CC0000"/>
+                    </linearGradient>
+                </defs>
+                <path d="M10 30 C10 18 20 10 34 12 C42 13 46 20 46 28 L46 36 C46 44 42 48 34 50 L20 52 L12 60 L18 50 L20 42 L20 32 Z" fill="url(#g)"/>
+                <circle cx="34" cy="28" r="4" fill="white"/>
+                <path d="M46 30 L58 25 M46 34 L58 34 M46 38 L58 42" stroke="#CC0000" stroke-width="2.5" stroke-linecap="round"/>
+                <path d="M16 20 C20 17 25 20 26 25 C23 30 19 32 14 29 C14 24 14 20 16 20" fill="#AA0000" opacity="0.4"/>
+                <path d="M22 26 C26 23 31 26 33 31 C30 36 25 38 20 35 C20 30 20 26 22 26" fill="#AA0000" opacity="0.4"/>
+            </svg>
+            <div style="flex:1; display:flex; justify-content:space-between; align-items:center;">
+                <div>
+                    <h2 style="font-size:18px; font-weight:600; color:#333;">智能问答</h2>
+                    <p style="color:#888; font-size:13px; margin-top:2px;">
+                        搜索以下知识库：
+                        {% for kb in accessible_kbs %}
+                        <span class="kb-badge">{{ kb.kb_name }}</span>
+                        {% endfor %}
+                    </p>
+                </div>
+                <div>
+                    <button onclick="newChat()" id="newChatBtn" style="padding:8px 16px; border:1px solid #CC0000; background:white; color:#CC0000; border-radius:6px; font-size:13px; cursor:pointer;">+ 新对话</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="chat-box">
+            <div class="messages" id="messages">
+                {% if chat_history %}
+                    {% for msg in chat_history %}
+                    <div class="message {{ msg.role }}">
+                        <div class="role">{{ '你' if msg.role == 'user' else '助手' }}</div>
+                        <div class="content">{{ msg.content }}</div>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                <div class="empty-state">
+                    <div class="icon">💬</div>
+                    <p style="font-size:15px;">基于 Dify 知识检索 + MiniMax LLM 智能回答</p>
+                    <p style="font-size:13px; margin-top:6px; color:#bbb;">问题将同时在所有可访问知识库中检索</p>
+                </div>
+                {% endif %}
+            </div>
+            <div class="input-area">
+                <textarea id="queryInput" placeholder="输入问题，按 Enter 发送..." rows="1"></textarea>
+                <button class="btn btn-primary" onclick="sendQuery()" id="sendBtn" style="padding:0 24px; height:48px; font-size:15px; border-radius:8px;">发送</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let currentSessionId = null;
+let sessionCounter = 0;
+let abortController = null;
+let sessionId = (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString());
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+async function sendQuery() {
+    const input = document.getElementById('queryInput');
+    const query = input.value.trim();
+    if (!query) return;
+    input.value = '';
+
+    if (abortController) { abortController.abort(); }
+    abortController = new AbortController();
+
+    const thisSessionId = ++sessionCounter;
+    currentSessionId = thisSessionId;
+
+    const messages = document.getElementById('messages');
+    document.querySelector('.empty-state')?.remove();
+
+    const userDiv = document.createElement('div');
+    userDiv.className = 'message user';
+    userDiv.innerHTML = '<div class="role">你</div><div class="content">' + escapeHtml(query) + '</div>';
+    messages.appendChild(userDiv);
+
+    const assistantDiv = document.createElement('div');
+    assistantDiv.className = 'message assistant';
+    const roleDiv = document.createElement('div');
+    roleDiv.className = 'role';
+    roleDiv.textContent = '助手';
+    const contentDiv = document.createElement('div');
+    contentDiv.className = 'content';
+    assistantDiv.appendChild(roleDiv);
+    assistantDiv.appendChild(contentDiv);
+    messages.appendChild(assistantDiv);
+
+    const loadingDiv = document.createElement('div');
+    loadingDiv.className = 'loading';
+    loadingDiv.textContent = '正在检索所有知识库...';
+    messages.appendChild(loadingDiv);
+    messages.scrollTop = messages.scrollHeight;
+
+    let sources = [];
+
+    try {
+        const resp = await fetch('/qa/ask', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            signal: abortController.signal,
+            body: JSON.stringify({query, session_id: sessionId})
+        });
+
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+        let buffer = '';
+
+        let firstTokenReceived = false;
+        while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            if (currentSessionId !== thisSessionId) return;
+
+            // Remove loading indicator once we receive any data
+            if (!firstTokenReceived) {
+                loadingDiv.remove();
+                firstTokenReceived = true;
+            }
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop();
+
+            for (const line of lines) {
+                if (!line.startsWith('data: ')) continue;
+                const trimmed = line.slice(6).trim();
+                if (!trimmed || trimmed === '[DONE]') continue;
+                try {
+                    const data = JSON.parse(trimmed);
+                    if (data.error) {
+                        contentDiv.innerHTML = '<span style="color:#c00;">❌ ' + escapeHtml(data.error) + '</span>';
+                        return;
+                    }
+                    if (data.token !== undefined) {
+                        contentDiv.appendChild(document.createTextNode(data.token));
+                        messages.scrollTop = messages.scrollHeight;
+                    }
+                    if (data.done) { sources = data.sources || []; }
+                } catch {}
+            }
+        }
+
+        if (currentSessionId !== thisSessionId) return;
+
+        if (sources.length > 0) {
+            const sourcesDiv = document.createElement('div');
+            sourcesDiv.className = 'kb-sources';
+            sourcesDiv.innerHTML = '来源知识库：' + sources.map(function(s) {
+                return '<span class="kb-badge">' + escapeHtml(s.kb_name) + '</span>';
+            }).join('');
+            assistantDiv.appendChild(sourcesDiv);
+        }
+
+    } catch (e) {
+        loadingDiv.remove();
+        if (e.name !== 'AbortError') {
+            contentDiv.innerHTML = '<span style="color:#c00;">❌ 请求失败: ' + e.message + '</span>';
+        }
+    }
+    messages.scrollTop = messages.scrollHeight;
+}
+
+function newChat() {
+    sessionId = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString();
+    document.getElementById('messages').innerHTML = '<div class="empty-state"><div class="icon">💬</div><p style="font-size:15px;">基于 Dify 知识检索 + MiniMax LLM 智能回答</p><p style="font-size:13px; margin-top:6px; color:#bbb;">问题将同时在所有可访问知识库中检索</p></div>';
+    fetch('/qa/ask', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({query: '', clear: true, session_id: sessionId})
+    }).catch(function() {});
+}
+
+document.getElementById('queryInput').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendQuery();
+    }
+});
+</script>
+
+{% endblock %}

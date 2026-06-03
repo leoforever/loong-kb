@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% block title %}{{ kb.kb_name }} - 龙芯知识库{% endblock %}
+{% block extra_style %}
+<style>
+.chat-container { max-width: 860px; margin: 0 auto; }
+.chat-box { background: white; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.1); padding: 0; overflow: hidden; }
+.messages { flex: 1; overflow-y: auto; max-height: 55vh; min-height: 300px; padding: 24px; }
+.message { margin-bottom: 16px; padding: 14px 18px; border-radius: 12px; line-height: 1.7; font-size: 14px; }
+.message.user { background: #fff0f0; margin-left: 60px; border-bottom-right-radius: 4px; }
+.message.assistant { background: #f8f8f8; margin-right: 60px; border-bottom-left-radius: 4px; }
+.message .role { font-size: 12px; font-weight: 600; color: #CC0000; margin-bottom: 6px; }
+.message .content { color: #333; }
+.message.assistant .role { color: #666; }
+.input-area { display: flex; gap: 12px; padding: 16px 24px; border-top: 1px solid #f0f0f0; background: #fafafa; }
+.input-area textarea { flex: 1; padding: 12px 16px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; resize: none; min-height: 48px; max-height: 120px; font-family: inherit; }
+.input-area textarea:focus { outline: none; border-color: #CC0000; }
+.loading { text-align: center; padding: 24px; color: #888; }
+.loading::after { content: '...'; animation: dots 1.5s infinite; }
+@keyframes dots { 0%{content:'.'} 33%{content:'..'} 66%{content:'...'} }
+</style>
+{% endblock %}
+{% block content %}
+<div class="chat-container">
+    <div style="margin-bottom: 16px;">
+        <a href="/qa" style="color:#CC0000; text-decoration:none; font-size:14px; font-weight:500;">← 返回知识库列表</a>
+    </div>
+
+    <div style="background:white; border-radius:12px; box-shadow:0 2px 8px rgba(0,0,0,0.08); padding:20px 24px; margin-bottom:16px; display:flex; align-items:center; gap:16px;">
+        <div style="width:48px; height:48px; background:#fff0f0; border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:24px;">📚</div>
+        <div>
+            <h2 style="font-size:18px; font-weight:600; color:#333;">{{ kb.kb_name }}</h2>
+            {% if kb.description %}
+            <p style="color:#888; font-size:13px; margin-top:2px;">{{ kb.description }}</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="chat-box">
+        <div class="messages" id="messages">
+            <div style="text-align:center; padding:60px 40px; color:#888;">
+                <div style="font-size:40px; margin-bottom:12px;">💬</div>
+                <p style="font-size:15px;">基于 Dify 知识检索 + MiniMax LLM 智能回答</p>
+                <p style="font-size:13px; margin-top:6px; color:#bbb;">输入问题开始探索知识库</p>
+            </div>
+        </div>
+        <div class="input-area">
+            <textarea id="queryInput" placeholder="请输入问题，按 Enter 发送，Shift+Enter 换行..." rows="1"></textarea>
+            <button class="btn btn-primary" onclick="sendQuery()" id="sendBtn" style="padding:0 24px; height:48px; font-size:15px; border-radius:8px;">发送</button>
+        </div>
+    </div>
+</div>
+
+<script>
+const kbId = {{ kb.kb_id }};
+let loading = false;
+
+async function sendQuery() {
+    if (loading) return;
+    const input = document.getElementById('queryInput');
+    const query = input.value.trim();
+    if (!query) return;
+
+    loading = true;
+    document.getElementById('sendBtn').disabled = true;
+    input.value = '';
+
+    const messages = document.getElementById('messages');
+    messages.innerHTML += `<div class="message user"><div class="role">你</div><div class="content">${escapeHtml(query)}</div></div>`;
+    messages.innerHTML += `<div class="loading">正在检索知识库</div>`;
+    messages.scrollTop = messages.scrollHeight;
+
+    try {
+        const resp = await fetch(`/qa/${kbId}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({query})
+        });
+        const data = await resp.json();
+        document.querySelector('.loading')?.remove();
+
+        if (data.error) {
+            messages.innerHTML += `<div class="message assistant"><div class="role">助手</div><div class="content" style="color:#c00;">❌ ${escapeHtml(data.error)}</div></div>`;
+        } else {
+            messages.innerHTML += `<div class="message assistant"><div class="role">助手</div><div class="content">${data.answer.replace(/\n/g, '<br>')}</div></div>`;
+        }
+    } catch (e) {
+        document.querySelector('.loading')?.remove();
+        messages.innerHTML += `<div class="message assistant"><div class="role">助手</div><div class="content" style="color:#c00;">❌ 请求失败: ${e.message}</div></div>`;
+    }
+
+    loading = false;
+    document.getElementById('sendBtn').disabled = false;
+    messages.scrollTop = messages.scrollHeight;
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+document.getElementById('queryInput').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendQuery();
+    }
+});
+</script>
+{% endblock %}

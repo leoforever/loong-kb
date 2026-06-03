@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% block title %}用户管理 - 龙芯知识库{% endblock %}
+{% block content %}
+<div class="page-main">
+    <div class="page-header">
+        <div>
+            <h1 class="page-title">用户管理</h1>
+            <p style="color:#888; margin-top:4px; font-size:14px;">创建用户账号并分配角色</p>
+        </div>
+        <button class="btn btn-primary" onclick="showCreateUser()">+ 新建用户</button>
+    </div>
+
+    <div class="card">
+        <h3 class="section-title">用户列表</h3>
+        <table>
+            <thead><tr><th>ID</th><th>用户名</th><th>显示名</th><th>角色</th><th>创建时间</th><th>操作</th></tr></thead>
+            <tbody>
+            {% for user in users %}
+            <tr>
+                <td style="color:#999;">{{ user.user_id }}</td>
+                <td><strong>{{ user.username }}</strong></td>
+                <td style="color:#666;">{{ user.display_name or '-' }}</td>
+                <td>
+                    {% if user.roles %}
+                        {% for r in user.roles.split(',') if r %}
+                        <span class="tag">{{ r }}</span>
+                        {% endfor %}
+                    {% else %}
+                        <span style="color:#ccc; font-size:13px;">未分配</span>
+                    {% endif %}
+                </td>
+                <td style="color:#999; font-size:13px;">{{ user.created_at[:10] if user.created_at else '-' }}</td>
+                <td>
+                    <button class="btn btn-outline" style="padding:4px 12px; font-size:12px;"
+                        onclick="editRoles('{{ user.username }}', '{{ user.roles or '' }}')">分配角色</button>
+                    <button class="btn btn-danger" style="padding:4px 12px; font-size:12px;"
+                        onclick="deleteUser({{ user.user_id }})">删除</button>
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- 创建用户弹窗 -->
+<div id="createUserModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:200; justify-content:center; align-items:center;">
+    <div style="background:white; border-radius:12px; padding:32px; width:460px; max-width:90%;">
+        <h3 style="margin-bottom:20px; font-size:18px;">新建用户</h3>
+        <form method="post" action="/admin/users">
+            <div class="form-group"><label>用户名</label><input name="username" required placeholder="唯一用户名"></div>
+            <div class="form-group"><label>显示名称</label><input name="display_name" placeholder="可选"></div>
+            <div class="form-group"><label>密码</label><input type="password" name="password" required minlength="6" placeholder="至少6位"></div>
+            <div class="form-group">
+                <label>分配角色</label>
+                <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:4px;" id="createRoleCheckboxes">
+                    {% for role in roles %}
+                    <label style="display:flex; align-items:center; gap:4px; cursor:pointer; font-weight:normal;">
+                        <input type="checkbox" name="role_ids" value="{{ role.role_name }}"> {{ role.role_name }}
+                    </label>
+                    {% endfor %}
+                </div>
+            </div>
+            <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:24px;">
+                <button type="button" class="btn btn-secondary" onclick="hideModal('createUserModal')">取消</button>
+                <button type="submit" class="btn btn-primary">创建</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- 分配角色弹窗 -->
+<div id="editRolesModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:200; justify-content:center; align-items:center;">
+    <div style="background:white; border-radius:12px; padding:32px; width:440px; max-width:90%;">
+        <h3 id="editRolesTitle" style="margin-bottom:20px; font-size:18px;">分配角色</h3>
+        <form method="post" id="editRolesForm" action="">
+            <div class="form-group">
+                <label>角色</label>
+                <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:4px;" id="roleCheckboxes">
+                    {% for role in roles %}
+                    <label style="display:flex; align-items:center; gap:4px; cursor:pointer; font-weight:normal;">
+                        <input type="checkbox" name="role_ids" value="{{ role.role_name }}"> {{ role.role_name }}
+                    </label>
+                    {% endfor %}
+                </div>
+            </div>
+            <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:24px;">
+                <button type="button" class="btn btn-secondary" onclick="hideModal('editRolesModal')">取消</button>
+                <button type="submit" class="btn btn-primary">保存</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function showCreateUser() {
+    document.getElementById('createRoleCheckboxes').querySelectorAll('input').forEach(cb => cb.checked = false);
+    document.getElementById('createUserModal').style.display = 'flex';
+}
+
+function editRoles(username, currentRoles) {
+    document.getElementById('editRolesTitle').textContent = `为「${username}」分配角色`;
+    const form = document.getElementById('editRolesForm');
+    form.action = `/admin/users/${username}/roles`;
+    document.querySelectorAll('#roleCheckboxes input').forEach(cb => cb.checked = false);
+    if (currentRoles) {
+        currentRoles.split(',').forEach(r => {
+            r = r.trim();
+            const cb = document.querySelector(`#roleCheckboxes input[value="${r}"]`);
+            if (cb) cb.checked = true;
+        });
+    }
+    document.getElementById('editRolesModal').style.display = 'flex';
+}
+
+function deleteUser(userId) {
+    if (!confirm('确认删除该用户？')) return;
+    fetch(`/admin/users/${userId}/delete`, {method:'POST'}).then(r => location.reload());
+}
+
+function hideModal(id) { document.getElementById(id).style.display = 'none'; }
+document.getElementById('createUserModal').addEventListener('click', function(e) { if(e.target===this) hideModal('createUserModal'); });
+document.getElementById('editRolesModal').addEventListener('click', function(e) { if(e.target===this) hideModal('editRolesModal'); });
+</script>
+{% endblock %}

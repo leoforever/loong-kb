@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="bodyGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FF4444"/>
+      <stop offset="100%" stop-color="#CC0000"/>
+    </linearGradient>
+  </defs>
+  <!-- Dragon head (simplified, facing right) -->
+  <path d="M8 28 C8 18 16 12 28 14 C34 15 38 20 38 26 L38 32 C38 38 34 42 28 44 L18 46 L12 52 L16 44 L18 38 L18 30 Z" fill="url(#bodyGrad)"/>
+  <!-- Eye -->
+  <circle cx="28" cy="26" r="3" fill="white"/>
+  <!-- Whisker/lines -->
+  <path d="M38 28 L48 24 M38 30 L48 30 M38 32 L48 36" stroke="#CC0000" stroke-width="2" stroke-linecap="round"/>
+  <!-- Scales pattern on body -->
+  <path d="M14 20 C18 18 22 20 24 24 C22 28 18 30 14 28 C14 24 14 20 14 20" fill="#AA0000" opacity="0.5"/>
+  <path d="M20 24 C24 22 28 24 30 28 C28 32 24 34 20 32 C20 28 20 24 20 24" fill="#AA0000" opacity="0.5"/>
+  <!-- Tail curve -->
+  <path d="M8 40 C4 44 6 52 14 54 C20 55 26 50 24 44 C22 38 12 36 8 40" fill="#CC0000"/>
+</svg>

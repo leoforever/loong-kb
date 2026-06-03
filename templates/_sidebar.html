@@ -1,0 +1,20 @@
+{# Sidebar fragment for admin pages #}
+<div class="sidebar">
+    <div class="card" style="padding:8px 0;">
+        {% if is_admin %}
+        <div class="sidebar-title">管理后台</div>
+        <a href="/qa" class="sidebar-link {% if request.path == '/qa' %}active{% endif %}">
+            <span class="icon">💬</span> 问答
+        </a>
+        <a href="/admin/users" class="sidebar-link {% if '/admin/users' in request.path %}active{% endif %}">
+            <span class="icon">👥</span> 用户管理
+        </a>
+        <a href="/admin/roles" class="sidebar-link {% if '/admin/roles' in request.path %}active{% endif %}">
+            <span class="icon">🎭</span> 角色管理
+        </a>
+        <a href="/admin/kbs" class="sidebar-link {% if '/admin/kbs' in request.path %}active{% endif %}">
+            <span class="icon">📚</span> 知识库管理
+        </a>
+        {% endif %}
+    </div>
+</div>

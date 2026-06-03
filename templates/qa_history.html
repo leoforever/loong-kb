@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}问答历史 - 龙芯知识库{% endblock %}
+{% block content %}
+<div style="margin-bottom: 16px;">
+    <a href="/qa/{{ kb.kb_id }}" style="color: #1a73e8; text-decoration: none; font-size: 14px;">← 返回问答</a>
+</div>
+<h2 style="margin-bottom: 20px;">📚 {{ kb.kb_name }} - 问答历史</h2>
+
+<div class="card">
+{% if not history %}
+    <p style="color: #888; text-align: center; padding: 40px;">暂无问答记录</p>
+{% else %}
+    <table>
+        <thead><tr><th>时间</th><th>问题</th><th>回答摘要</th></tr></thead>
+        <tbody>
+        {% for h in history %}
+        <tr>
+            <td style="white-space: nowrap;">{{ h.created_at[:19] if h.created_at else '-' }}</td>
+            <td>{{ h.question }}</td>
+            <td style="max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ h.answer }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+{% endif %}
+</div>
+{% endblock %}
