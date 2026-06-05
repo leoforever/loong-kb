@@ -79,6 +79,7 @@ def ask():
     session_id = data.get('session_id', '')
     clear = data.get('clear', False)
     query = data.get('query', '').strip()
+    requested_kb_ids = data.get('kb_ids')  # None means all
 
     user_id = session['user_id']
 
@@ -119,6 +120,11 @@ def ask():
     perms = get_kb_permissions_for_roles(role_ids)
     all_kbs = get_all_kbs()
     accessible_kbs = [kb for kb in all_kbs if perms.get(kb['kb_id'], {}).get('can_read')]
+
+    # Filter to selected KBs if specified
+    if requested_kb_ids is not None:
+        accessible_kbs = [kb for kb in accessible_kbs if kb['kb_id'] in requested_kb_ids]
+
     logger.info(f"[QA] ask | accessible_kbs={[kb['kb_name'] for kb in accessible_kbs]}")
 
     if not accessible_kbs:
