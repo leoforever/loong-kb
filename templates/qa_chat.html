@@ -17,6 +17,19 @@
 .loading { text-align: center; padding: 24px; color: #888; }
 .loading::after { content: '...'; animation: dots 1.5s infinite; }
 @keyframes dots { 0%{content:'.'} 33%{content:'..'} 66%{content:'...'} }
+.doc-toggle { font-size: 13px; color: #CC0000; cursor: pointer; user-select: none; margin-top: 6px; display: inline-flex; align-items: center; gap: 4px; }
+.doc-toggle:hover { text-decoration: underline; }
+.doc-panel { background: #fafafa; border-radius: 8px; margin-bottom: 16px; overflow: hidden; display: none; }
+.doc-panel.open { display: block; }
+.doc-item { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid #eee; font-size: 13px; }
+.doc-item:last-child { border-bottom: none; }
+.doc-item .icon { font-size: 18px; }
+.doc-item .name { flex: 1; color: #333; }
+.doc-item .meta { color: #999; font-size: 12px; }
+.doc-item .status { font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 500; }
+.status-completed { background: #e6f4ea; color: #1e7e34; }
+.status-error { background: #fce8e6; color: #c5221f; }
+.status-queuing { background: #e8f0fe; color: #1967d2; }
 </style>
 {% endblock %}
 {% block content %}
@@ -32,6 +45,16 @@
             {% if kb.description %}
             <p style="color:#888; font-size:13px; margin-top:2px;">{{ kb.description }}</p>
             {% endif %}
+            <span class="doc-toggle" onclick="toggleDocs()">📄 知识库文件 ▾</span>
+        </div>
+    </div>
+
+    <div class="doc-panel" id="docPanel">
+        <div style="padding:12px 16px; background:#f0f0f0; font-size:13px; font-weight:600; color:#666;">
+            知识库文件 <span id="docCount" style="font-weight:400; color:#999;"></span>
+        </div>
+        <div id="docList">
+            <div style="padding:20px; text-align:center; color:#999; font-size:13px;" id="docLoading">加载中...</div>
         </div>
     </div>
 
@@ -105,5 +128,48 @@ document.getElementById('queryInput').addEventListener('keydown', function(e) {
         sendQuery();
     }
 });
+
+// 知识库文件列表
+let docsLoaded = false;
+
+async function toggleDocs() {
+    const panel = document.getElementById('docPanel');
+    panel.classList.toggle('open');
+    if (!docsLoaded) {
+        docsLoaded = true;
+        loadDocs();
+    }
+}
+
+async function loadDocs() {
+    const docList = document.getElementById('docList');
+    const docCount = document.getElementById('docCount');
+    try {
+        const resp = await fetch(`/qa/${kbId}/documents`);
+        const data = await resp.json();
+        if (data.error) {
+            docList.innerHTML = `<div style="padding:16px; color:#c00; font-size:13px;">❌ ${data.error}</div>`;
+            return;
+        }
+        const docs = data.documents || [];
+        docCount.textContent = `(${data.total || docs.length} 个文件)`;
+        if (!docs.length) {
+            docList.innerHTML = `<div style="padding:20px; text-align:center; color:#999; font-size:13px;">暂无文件</div>`;
+            return;
+        }
+        const statusLabel = { completed: '已完成', error: '失败', queuing: '处理中' };
+        const statusClass = { completed: 'status-completed', error: 'status-error', queuing: 'status-queuing' };
+        docList.innerHTML = docs.map(doc => `
+            <div class="doc-item">
+                <span class="icon">📄</span>
+                <span class="name" title="${doc.name}">${escapeHtml(doc.name)}</span>
+                <span class="status ${statusClass[doc.status] || ''}">${statusLabel[doc.status] || doc.status || '未知'}</span>
+                <span class="meta">${doc.word_count ? doc.word_count + ' 字' : ''}</span>
+            </div>
+        `).join('');
+    } catch (e) {
+        docList.innerHTML = `<div style="padding:16px; color:#c00; font-size:13px;">❌ 加载失败: ${e.message}</div>`;
+    }
+}
 </script>
 {% endblock %}

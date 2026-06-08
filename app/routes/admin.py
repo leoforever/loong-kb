@@ -250,6 +250,25 @@ def delete_kb(kb_id):
     return redirect(url_for('admin.kbs'))
 
 
+@bp.route('/admin/kbs/<int:kb_id>/documents', methods=['GET'])
+@admin_required
+def get_kb_documents(kb_id):
+    """获取知识库的文档列表"""
+    from app.models import get_kb_by_id
+    kb = get_kb_by_id(kb_id)
+    dataset_id = kb['dify_dataset_id'] if kb else None
+    if not kb or not dataset_id:
+        return jsonify({'documents': [], 'total': 0})
+
+    from app.services.dify import build_dify_service
+    dify = build_dify_service(kb)
+    result = dify.list_documents()
+    if 'error' in result:
+        import logging
+        logging.getLogger(__name__).error(f"[Admin] list_documents error: {result['error']}")
+    return jsonify(result)
+
+
 # ==================== Permission Management ====================
 
 @bp.route('/admin/permissions', methods=['POST'])

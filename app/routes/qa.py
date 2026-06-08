@@ -261,3 +261,35 @@ def history(kb_id):
     history = get_user_history(session['user_id'], limit=50)
     kb = get_kb_by_id(kb_id)
     return render_template('qa_history.html', history=history, kb=kb)
+
+
+@bp.route('/qa/<int:kb_id>/documents', methods=['GET'])
+def kb_documents(kb_id):
+    """获取知识库包含的文档列表"""
+    if not session.get('user_id'):
+        return jsonify({'error': '请先登录'}), 401
+
+    from app.models import get_kb_by_id, get_user_roles, get_kb_permissions_for_roles, get_db_conn
+
+    kb = get_kb_by_id(kb_id)
+    if not kb:
+        return jsonify({'error': '知识库不存在'}), 404
+
+    role_names = get_user_roles(session['user_id'])
+    with get_db_conn() as conn:
+        c = conn.cursor()
+        c.execute('SELECT role_id FROM roles WHERE role_name IN (%s)' %
+                  ','.join(['?'] * len(role_names)), role_names)
+        role_ids = [row['role_id'] for row in c.fetchall()]
+
+    perms = get_kb_permissions_for_roles(role_ids)
+    if not perms.get(kb_id, {}).get('can_read'):
+        return jsonify({'error': '无权限'}), 403
+
+    if not kb.get('dify_dataset_id'):
+        return jsonify({'documents': [], 'total': 0})
+
+    from app.services.dify import build_dify_service
+    dify = build_dify_service(kb)
+    result = dify.list_documents()
+    return jsonify(result)

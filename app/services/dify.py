@@ -45,6 +45,70 @@ class DifyKBService:
             logger.error(f"[Dify] Request failed for {url}: {e}")
             raise
 
+    def _get(self, path, params=None, timeout=30):
+        url = f'{self.api_url}{path}'
+        logger.debug(f"[Dify] GET {url}")
+        try:
+            resp = self.session.get(url, params=params, timeout=timeout)
+            logger.info(f"[Dify] Response {resp.status_code} for GET {path}")
+            if resp.status_code >= 400:
+                logger.error(f"[Dify] API error {resp.status_code}: {resp.text[:300]}")
+            return resp
+        except requests.exceptions.Timeout:
+            logger.error(f"[Dify] Timeout calling {url}")
+            raise
+        except Exception as e:
+            logger.error(f"[Dify] Request failed for {url}: {e}")
+            raise
+
+    def list_documents(self, page=1, page_size=100):
+        """
+        获取知识库下的所有文档列表（自动翻页）。
+        Dify API: GET /v1/datasets/{dataset_id}/documents
+        返回 {'documents': [...], 'total': int}
+        """
+        all_docs = []
+        current_page = page
+        has_more = True
+
+        while has_more:
+            try:
+                resp = self._get(
+                    f'/v1/datasets/{self.dataset_id}/documents',
+                    params={'page': current_page, 'page_size': page_size}
+                )
+                if resp.status_code != 200:
+                    return {'error': f'HTTP {resp.status_code}: {resp.text[:200]}'}
+
+                data = resp.json()
+                docs = data.get('data', [])
+                has_more = data.get('has_more', False)
+
+                for doc in docs:
+                    all_docs.append({
+                        'id': doc.get('id', ''),
+                        'name': doc.get('name', '未知文件'),
+                        'type': doc.get('data_source_type', 'document'),
+                        'indexing_status': doc.get('indexing_status', ''),
+                        'display_status': doc.get('display_status', ''),
+                        'word_count': doc.get('word_count', 0),
+                        'char_count': doc.get('tokens', 0),
+                        'created_at': doc.get('created_at', ''),
+                        'error': doc.get('error'),
+                    })
+
+                logger.info(f"[Dify] list_documents | dataset={self.dataset_id} | page={current_page} | fetched={len(docs)} | has_more={has_more}")
+                current_page += 1
+                if current_page > 50:
+                    break
+
+            except Exception as e:
+                logger.error(f"[Dify] list_documents failed: {e}")
+                return {'error': str(e)}
+
+        logger.info(f"[Dify] list_documents | dataset={self.dataset_id} | total={len(all_docs)}")
+        return {'documents': all_docs, 'total': len(all_docs)}
+
     def retrieve(self, query, top_k=5, search_method='semantic_search', reranking_enable=False):
         """
         Retrieve relevant chunks from Dify knowledge base.
@@ -115,8 +179,6 @@ class DifyKBService:
 
 def build_dify_service(kb_config):
     """Factory: build DifyKBService from a kb_config row (dict or sqlite3.Row)"""
-    logger.debug(f"[Dify] build_dify_service | kb={kb_config.get('kb_name') if hasattr(kb_config, 'get') else kb_config} | dataset={kb_config.get('dify_dataset_id') if hasattr(kb_config, 'get') else kb_config['dify_dataset_id']}")
-    # Support both dict and sqlite3.Row
     if hasattr(kb_config, 'get'):
         dataset_id = kb_config.get('dify_dataset_id', '')
     else:

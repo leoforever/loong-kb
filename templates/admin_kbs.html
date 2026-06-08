@@ -1,5 +1,33 @@
 {% extends "base.html" %}
 {% block title %}知识库配置 - 龙芯知识库{% endblock %}
+{% block extra_style %}
+<style>
+.kb-doc-toggle { font-size: 12px; color: #CC0000; cursor: pointer; padding: 2px 8px; border: 1px solid #f0c0c0; border-radius: 4px; background: #fff5f5; display: inline-flex; align-items: center; gap: 4px; margin-top: 4px; }
+.kb-doc-toggle:hover { background: #ffeaea; text-decoration: none; }
+.kb-doc-row { display: none; }
+.kb-doc-row.open { display: table-row; }
+.kb-doc-row td { padding: 0; border-bottom: 1px solid #f0f0f0; background: #fafafa; }
+.kb-doc-inner { display: table; width: 100%; border-collapse: collapse; }
+.kb-doc-cell { display: table-cell; padding: 4px 8px; vertical-align: middle; font-size: 13px; }
+.kb-doc-cell.name { width: 17%; color: #333; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kb-doc-cell.desc { width: 30%; }
+.kb-doc-cell.dify { width: 17%; }
+.kb-doc-cell.status-cell { width: 10%; text-align: center; }
+.kb-doc-cell.actions { width: 26%; }
+.doc-item-row { display: table-row; }
+.doc-item-row td { padding: 3px 8px; font-size: 13px; border-bottom: 1px solid #eee; }
+.doc-item-row:last-child td { border-bottom: none; }
+.doc-item-row .name { color: #333; }
+.doc-item-row .status-cell { text-align: center; }
+.doc-item-row .actions { color: #999; font-size: 12px; text-align: right; }
+.doc-status { font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 500; }
+.status-completed { background: #e6f4ea; color: #1e7e34; }
+.status-error { background: #fce8e6; color: #c5221f; }
+.status-queuing { background: #e8f0fe; color: #1967d2; }
+.doc-empty { padding: 8px 12px; color: #999; font-size: 13px; font-style: italic; }
+.doc-loading { padding: 8px 12px; color: #999; font-size: 13px; }
+</style>
+{% endblock %}
 {% block content %}
 <div class="page-main">
         <div class="page-header">
@@ -7,18 +35,18 @@
                 <h1 class="page-title">知识库配置</h1>
                 <p style="color:#888; margin-top:4px; font-size:14px;">管理 Dify 知识库配置</p>
             </div>
-            <button class="btn btn-primary" onclick="showCreateKB()">+ 添加知识库</button>
+            <button class="btn btn-primary" onclick="showCreateKB()" disabled style="opacity:0.5; cursor:not-allowed;">+ 添加知识库</button>
             <button class="btn btn-secondary" style="margin-left:8px;" onclick="syncKBs()">🔄 同步 Dify</button>
         </div>
 
 <div class="card">
     <h3 class="section-title">知识库列表</h3>
-    <table>
-        <thead><tr><th>ID</th><th>名称</th><th>描述</th><th>Dify Dataset ID</th><th>状态</th><th>操作</th></tr></thead>
+    <table style="table-layout:fixed; width:100%;">
+        <thead><tr><th style="width:5%">ID</th><th style="width:17%">名称</th><th style="width:30%">描述</th><th style="width:17%">Dify Dataset ID</th><th style="width:10%">状态</th><th style="width:21%">操作</th></tr></thead>
         <tbody>
         {% for kb in kbs %}
         <tr>
-            <td style="color:#999;">{{ kb.kb_id }}</td>
+            <td style="color:#999;">{{ loop.index }}</td>
             <td><strong>{{ kb.kb_name }}</strong></td>
             <td style="color:#888; font-size:14px;">{{ kb.description or '-' }}</td>
             <td><code style="font-size:12px; background:#f5f5f5; padding:2px 6px; border-radius:4px;">{{ kb.dify_dataset_id }}</code></td>
@@ -39,10 +67,19 @@
                     <a href="/admin/kbs" class="btn btn-secondary" style="padding:4px 12px; font-size:12px;">取消</a>
                 </form>
                 {% else %}
-                <a href="/admin/kbs?edit={{ kb.kb_id }}" class="btn btn-outline" style="padding:4px 12px; font-size:12px;">编辑</a>
-                <button class="btn btn-danger" style="padding:4px 12px; font-size:12px;" onclick="deleteKB({{ kb.kb_id }})">删除</button>
+                <a href="/admin/kbs?edit={{ kb.kb_id }}" class="btn btn-outline" style="padding:4px 12px; font-size:12px; opacity:0.5; pointer-events:none; cursor:not-allowed;">编辑</a>
+                <button class="btn btn-danger" style="padding:4px 12px; font-size:12px; opacity:0.5; cursor:not-allowed;" onclick="return false">删除</button>
+                <button class="kb-doc-toggle" onclick="toggleDocs({{ kb.kb_id }})">文件 ▾</button>
                 {% endif %}
             </td>
+        </tr>
+        <tr class="kb-doc-row" id="doc-row-{{ kb.kb_id }}">
+            <td style="padding:3px 8px;border-bottom:1px solid #eee;"></td>
+            <td style="padding:3px 8px;border-bottom:1px solid #eee;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#333;font-size:14px;" id="doc-name-cell-{{ kb.kb_id }}"></td>
+            <td style="padding:3px 8px;border-bottom:1px solid #eee;"></td>
+            <td style="padding:3px 8px;border-bottom:1px solid #eee;font-size:14px;" id="doc-status-cell-{{ kb.kb_id }}"></td>
+            <td style="padding:3px 8px;border-bottom:1px solid #eee;"></td>
+            <td style="padding:3px 8px;border-bottom:1px solid #eee;text-align:left;font-size:14px;" id="doc-meta-cell-{{ kb.kb_id }}"></td>
         </tr>
         {% endfor %}
         </tbody>
@@ -80,5 +117,131 @@ function deleteKB(kbId) {
 }
 function hideModal(id) { document.getElementById(id).style.display = 'none'; }
 document.getElementById('createKBModal').addEventListener('click', function(e) { if(e.target===this) hideModal('createKBModal'); });
+
+const _docCache = {};
+async function toggleDocs(kbId) {
+    const row = document.getElementById('doc-row-' + kbId);
+    const isOpen = row.classList.contains('open');
+
+    if (isOpen) {
+        // 关闭：隐藏 doc-row 和所有 .doc-file-row（sibling 行）
+        row.classList.remove('open');
+        var allRows = row.parentNode.children;
+        for (var i = 0; i < allRows.length; i++) {
+            if (allRows[i].classList.contains('doc-file-row')) {
+                allRows[i].parentNode.removeChild(allRows[i]);
+                i--;
+            }
+        }
+        return;
+    }
+
+    // 展开前先清干净可能残留的旧 doc-file-row
+    var allRowsBefore = row.parentNode.children;
+    for (var i = 0; i < allRowsBefore.length; i++) {
+        if (allRowsBefore[i].classList.contains('doc-file-row')) {
+            allRowsBefore[i].parentNode.removeChild(allRowsBefore[i]);
+            i--;
+        }
+    }
+
+    row.classList.add('open');
+
+    if (!_docCache[kbId]) {
+        _docCache[kbId] = {};
+    }
+    const cache = _docCache[kbId];
+
+    if (cache.loaded) {
+        renderDocs(kbId, cache.docs, cache.statusLabel, cache.statusClass);
+        return;
+    }
+
+    try {
+        const resp = await fetch(`/admin/kbs/${kbId}/documents`);
+        const data = await resp.json();
+        if (data.error) {
+            const errStr = String(data.error);
+            document.getElementById('doc-name-cell-' + kbId).textContent =
+                (errStr.includes('not_found') || errStr.includes('404')) ? '暂无文件（知识库不存在或未同步）' : '加载失败';
+            document.getElementById('doc-status-cell-' + kbId).textContent = '';
+            document.getElementById('doc-meta-cell-' + kbId).textContent = '';
+            return;
+        }
+        const docs = data.documents || [];
+        if (!docs.length) {
+            document.getElementById('doc-name-cell-' + kbId).textContent = '暂无文件';
+            document.getElementById('doc-status-cell-' + kbId).textContent = '';
+            document.getElementById('doc-meta-cell-' + kbId).textContent = '';
+            return;
+        }
+        const statusLabel = {
+            available: '可用', disabled: '已禁用', archived: '已归档',
+            completed: '已完成', error: '失败', processing: '处理中',
+            queuing: '排队中', indexing: '索引中'
+        };
+        const statusClass = {
+            available: 'status-completed', disabled: 'status-error', archived: 'status-queuing',
+            completed: 'status-completed', error: 'status-error', processing: 'status-queuing',
+            queuing: 'status-queuing', indexing: 'status-queuing'
+        };
+        cache.docs = docs;
+        cache.statusLabel = statusLabel;
+        cache.statusClass = statusClass;
+        cache.loaded = true;
+        renderDocs(kbId, docs, statusLabel, statusClass);
+    } catch (e) {
+        document.getElementById('doc-name-cell-' + kbId).textContent = '加载失败';
+        document.getElementById('doc-status-cell-' + kbId).textContent = '';
+        document.getElementById('doc-meta-cell-' + kbId).textContent = '';
+    }
+}
+
+function renderDocs(kbId, docs, statusLabel, statusClass) {
+    const row = document.getElementById('doc-row-' + kbId);
+    const nameCell = document.getElementById('doc-name-cell-' + kbId);
+    const statusCell = document.getElementById('doc-status-cell-' + kbId);
+    const metaCell = document.getElementById('doc-meta-cell-' + kbId);
+
+    // 清空可能残留的 .doc-file-row（sibling 行）
+    var allRows = row.parentNode.children;
+    for (var i = 0; i < allRows.length; i++) {
+        if (allRows[i].classList.contains('doc-file-row')) {
+            allRows[i].parentNode.removeChild(allRows[i]);
+            i--;
+        }
+    }
+
+    // 无论单文件还是多文件，都统一插入 .doc-file-row
+    // 先清空 doc-row 单元格（保持干净）
+    nameCell.textContent = '';
+    statusCell.innerHTML = '';
+    metaCell.textContent = '';
+
+    let fileRowsHtml = '';
+    docs.forEach(function(doc) {
+        fileRowsHtml += `<tr class="doc-file-row">
+            <td style="padding:3px 8px;border-bottom:1px solid #eee;"></td>
+            <td style="padding:3px 8px;border-bottom:1px solid #eee;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#333;font-size:14px;" title="${escHtml(doc.name)}">${escHtml(doc.name)}</td>
+            <td style="padding:3px 8px;border-bottom:1px solid #eee;"></td>
+            <td style="padding:3px 8px;border-bottom:1px solid #eee;"><span class="doc-status ${statusClass[doc.display_status] || ''}">${statusLabel[doc.display_status] || doc.display_status || '未知'}</span></td>
+            <td style="padding:3px 8px;border-bottom:1px solid #eee;"></td>
+            <td style="padding:3px 8px;border-bottom:1px solid #eee;text-align:left;color:#999;font-size:12px;">${doc.word_count ? doc.word_count.toLocaleString() + ' 字' : ''}</td>
+        </tr>`;
+    });
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = '<table style="table-layout:fixed;width:100%;border-collapse:collapse;"><tbody>' + fileRowsHtml + '</tbody></table>';
+    const newRows = Array.from(tempDiv.firstChild.rows);
+    let insertBeforeNode = row.nextSibling;
+    for (let i = 0; i < newRows.length; i++) {
+        row.parentNode.insertBefore(newRows[i], insertBeforeNode);
+    }
+}
+
+function escHtml(s) {
+    const d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+}
 </script>
 {% endblock %}

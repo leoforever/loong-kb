@@ -67,4 +67,4 @@ if __name__ == '__main__':
     from app.config import get_server_config
     cfg = get_server_config()
     app = create_app()
-    app.run(host=cfg['host'], port=cfg['port'], debug=False)
+    app.run(host=cfg['host'], port=cfg['port'], debug=True)
