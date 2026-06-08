@@ -26,6 +26,18 @@
 .status-queuing { background: #e8f0fe; color: #1967d2; }
 .doc-empty { padding: 8px 12px; color: #999; font-size: 13px; font-style: italic; }
 .doc-loading { padding: 8px 12px; color: #999; font-size: 13px; }
+.doc-file-row .actions-cell { text-align: right; padding: 3px 8px; border-bottom: 1px solid #eee; }
+.doc-file-row .actions-cell button { padding: 2px 8px; font-size: 11px; border-radius: 4px; cursor: pointer; }
+.doc-file-row .del-btn { background: #fce8e6; color: #c5221f; border: 1px solid #f0aaa8; }
+.doc-file-row .del-btn:hover { background: #fce8e6; }
+.doc-upload-row { display: none; }
+.doc-upload-row.open { display: table-row; }
+.doc-upload-row td { padding: 6px 8px; border-bottom: 1px solid #ddd; background: #fafafa; }
+.doc-upload-form { display: inline-flex; gap: 6px; align-items: center; }
+.doc-upload-form input[type=file] { font-size: 12px; }
+.doc-upload-form button { padding: 4px 12px; font-size: 12px; background: #1976d2; color: white; border: none; border-radius: 4px; cursor: pointer; }
+.doc-upload-form button:hover { background: #1565c0; }
+.doc-upload-row .err-msg { color: #c5221f; font-size: 12px; margin-left: 8px; }
 </style>
 {% endblock %}
 {% block content %}
@@ -35,14 +47,14 @@
                 <h1 class="page-title">知识库配置</h1>
                 <p style="color:#888; margin-top:4px; font-size:14px;">管理 Dify 知识库配置</p>
             </div>
-            <button class="btn btn-primary" onclick="showCreateKB()" disabled style="opacity:0.5; cursor:not-allowed;">+ 添加知识库</button>
+            <button class="btn btn-primary" onclick="showCreateKB()">+ 添加知识库</button>
             <button class="btn btn-secondary" style="margin-left:8px;" onclick="syncKBs()">🔄 同步 Dify</button>
         </div>
 
 <div class="card">
     <h3 class="section-title">知识库列表</h3>
     <table style="table-layout:fixed; width:100%;">
-        <thead><tr><th style="width:5%">ID</th><th style="width:17%">名称</th><th style="width:30%">描述</th><th style="width:17%">Dify Dataset ID</th><th style="width:10%">状态</th><th style="width:21%">操作</th></tr></thead>
+        <thead><tr><th style="width:5%">ID</th><th style="width:15%">名称</th><th style="width:25%">描述</th><th style="width:15%">Dify Dataset ID</th><th style="width:8%">状态</th><th style="width:18%">操作</th><th style="width:14%">文件</th></tr></thead>
         <tbody>
         {% for kb in kbs %}
         <tr>
@@ -67,19 +79,32 @@
                     <a href="/admin/kbs" class="btn btn-secondary" style="padding:4px 12px; font-size:12px;">取消</a>
                 </form>
                 {% else %}
-                <a href="/admin/kbs?edit={{ kb.kb_id }}" class="btn btn-outline" style="padding:4px 12px; font-size:12px; opacity:0.5; pointer-events:none; cursor:not-allowed;">编辑</a>
-                <button class="btn btn-danger" style="padding:4px 12px; font-size:12px; opacity:0.5; cursor:not-allowed;" onclick="return false">删除</button>
+                <a href="/admin/kbs?edit={{ kb.kb_id }}" class="btn btn-outline" style="padding:4px 12px; font-size:12px;">编辑</a>
+                <button class="btn btn-danger" style="padding:4px 12px; font-size:12px;" onclick="deleteKB({{ kb.kb_id }}, '{{ kb.kb_name }}')">删除</button>
                 <button class="kb-doc-toggle" onclick="toggleDocs({{ kb.kb_id }})">文件 ▾</button>
                 {% endif %}
             </td>
+            <td></td>
         </tr>
-        <tr class="kb-doc-row" id="doc-row-{{ kb.kb_id }}">
+        <tr class="kb-doc-row open" id="doc-row-{{ kb.kb_id }}">
             <td style="padding:3px 8px;border-bottom:1px solid #eee;"></td>
             <td style="padding:3px 8px;border-bottom:1px solid #eee;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#333;font-size:14px;" id="doc-name-cell-{{ kb.kb_id }}"></td>
             <td style="padding:3px 8px;border-bottom:1px solid #eee;"></td>
             <td style="padding:3px 8px;border-bottom:1px solid #eee;font-size:14px;" id="doc-status-cell-{{ kb.kb_id }}"></td>
             <td style="padding:3px 8px;border-bottom:1px solid #eee;"></td>
             <td style="padding:3px 8px;border-bottom:1px solid #eee;text-align:left;font-size:14px;" id="doc-meta-cell-{{ kb.kb_id }}"></td>
+            <td style="padding:3px 8px;border-bottom:1px solid #eee;"></td>
+        </tr>
+        <tr class="doc-upload-row" id="upload-row-{{ kb.kb_id }}">
+            <td style="padding:3px 8px;border-bottom:1px solid #ddd;"></td>
+            <td style="padding:3px 8px;border-bottom:1px solid #ddd;" colspan="5">
+                <form class="doc-upload-form" id="upload-form-{{ kb.kb_id }}" enctype="multipart/form-data">
+                    <input type="file" name="file" accept=".txt,.pdf,.docx,.md,.doc" required>
+                    <button type="button" onclick="uploadDoc({{ kb.kb_id }})">上传到知识库</button>
+                    <span class="err-msg" id="upload-err-{{ kb.kb_id }}"></span>
+                </form>
+            </td>
+            <td style="padding:3px 8px;border-bottom:1px solid #ddd;"></td>
         </tr>
         {% endfor %}
         </tbody>
@@ -88,22 +113,71 @@
 
 <!-- 添加知识库弹窗 -->
 <div id="createKBModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:200; justify-content:center; align-items:center;">
-    <div style="background:white; border-radius:12px; padding:32px; width:520px; max-width:90%;">
-        <h3 style="margin-bottom:20px; font-size:18px;">添加知识库</h3>
-        <form method="post" action="/admin/kbs">
-            <div class="form-group"><label>知识库名称</label><input name="kb_name" required placeholder="如：龙芯产品手册"></div>
-            <div class="form-group"><label>描述</label><input name="description" placeholder="简要描述（可选）"></div>
-            <div class="form-group"><label>Dify Dataset ID</label><input name="dify_dataset_id" placeholder="从 Dify 知识库 URL 或 API 中获取" required></div>
-            <p style="color:#999; font-size:12px; margin-bottom:16px;">
-                Dify 连接信息（URL/Key）从 config.yaml 读取，修改请联系管理员。
-            </p>
-            <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:24px;">
+    <div style="background:white; border-radius:12px; padding:32px; width:560px; max-width:90%;">
+        <h3 style="margin-bottom:20px; font-size:18px;">新建知识库</h3>
+        <form method="post" action="/admin/kbs/from-template">
+            <div class="form-group"><label>知识库名称</label><input name="kb_name" required placeholder="如：龙芯产品手册v2.0" style="width:100%;"></div>
+            <div class="form-group"><label>描述（可选）</label><input name="description" placeholder="简要描述" style="width:100%;"></div>
+            <div class="form-group"><label>选择模板</label></div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:16px;">
+                <label class="tmpl-card" onclick="selectTmpl('text_plain')">
+                    <input type="radio" name="template_id" value="text_plain" checked style="display:none;">
+                    <div class="tmpl-inner">
+                        <strong>通用分段</strong>
+                        <span>text_model · 自动分句 · 高质量索引</span>
+                        <small>嵌入 BAAI/bge-m3 · 重排开启 · 混合检索</small>
+                    </div>
+                </label>
+                <label class="tmpl-card" onclick="selectTmpl('text_summary')">
+                    <input type="radio" name="template_id" value="text_summary" style="display:none;">
+                    <div class="tmpl-inner">
+                        <strong>通用+摘要</strong>
+                        <span>text_model · 自动分句 · 开启摘要</span>
+                        <small>嵌入 BAAI/bge-m3 · 重排开启 · MiniMax摘要</small>
+                    </div>
+                </label>
+                <label class="tmpl-card" onclick="selectTmpl('hierarchical_plain')">
+                    <input type="radio" name="template_id" value="hierarchical_plain" style="display:none;">
+                    <div class="tmpl-inner">
+                        <strong>父子分段</strong>
+                        <span>hierarchical · 全文为父 · 子块512字</span>
+                        <small>嵌入 BAAI/bge-m3 · 重排开启 · 混合检索</small>
+                    </div>
+                </label>
+                <label class="tmpl-card" onclick="selectTmpl('hierarchical_summary')">
+                    <input type="radio" name="template_id" value="hierarchical_summary" style="display:none;">
+                    <div class="tmpl-inner">
+                        <strong>父子+摘要</strong>
+                        <span>hierarchical · 全文为父 · 开启摘要</span>
+                        <small>嵌入 BAAI/bge-m3 · 重排开启 · MiniMax摘要</small>
+                    </div>
+                </label>
+                <label class="tmpl-card" onclick="selectTmpl('parent_child')" style="grid-column:1/-1;">
+                    <input type="radio" name="template_id" value="parent_child" style="display:none;">
+                    <div class="tmpl-inner">
+                        <strong>父子链（Parent-Chain）</strong>
+                        <span>hierarchical · 父子链模式 · 128字子块 · 最大检索粒度</span>
+                        <small>嵌入 BAAI/bge-m3 · 重排开启 · 适合结构化文档</small>
+                    </div>
+                </label>
+            </div>
+            <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:16px;">
                 <button type="button" class="btn btn-secondary" onclick="hideModal('createKBModal')">取消</button>
-                <button type="submit" class="btn btn-primary">保存</button>
+                <button type="submit" class="btn btn-primary">创建知识库</button>
             </div>
         </form>
     </div>
 </div>
+
+<style>
+.tmpl-card { display:block; cursor:pointer; border:2px solid #e0e0e0; border-radius:8px; padding:10px 12px; transition:border-color 0.15s, background 0.15s; }
+.tmpl-card:hover { border-color:#1976d2; background:#f0f4ff; }
+.tmpl-card.selected { border-color:#1976d2; background:#e3f0ff; }
+.tmpl-inner { display:flex; flex-direction:column; gap:2px; }
+.tmpl-inner strong { font-size:14px; color:#333; }
+.tmpl-inner span { font-size:12px; color:#555; }
+.tmpl-inner small { font-size:11px; color:#888; }
+</style>
 
 <script>
 function showCreateKB() { document.getElementById('createKBModal').style.display = 'flex'; }
@@ -111,20 +185,26 @@ function syncKBs() {
     if (!confirm('将从 Dify API 同步知识库列表，是否继续？')) return;
     fetch('/admin/kbs/sync', {method:'POST'}).then(r => location.reload());
 }
-function deleteKB(kbId) {
-    if (!confirm('确认删除该知识库？')) return;
+function selectTmpl(id) {
+    document.querySelectorAll('.tmpl-card').forEach(c => c.classList.remove('selected'));
+    document.querySelector(`input[value="${id}"]`).checked = true;
+    document.querySelector(`input[value="${id}"]`).closest('.tmpl-card').classList.add('selected');
+}
+function deleteKB(kbId, kbName) {
+    if (!confirm(`确认删除知识库「${kbName}」？\n\n删除后，Dify 上的知识库和所有文档也将同步删除。`)) return;
     fetch(`/admin/kbs/${kbId}/delete`, {method:'POST'}).then(r => location.reload());
 }
 function hideModal(id) { document.getElementById(id).style.display = 'none'; }
 document.getElementById('createKBModal').addEventListener('click', function(e) { if(e.target===this) hideModal('createKBModal'); });
 
-const _docCache = {};
+var _docCache = {};
+var _abortControllers = {};
 async function toggleDocs(kbId) {
     const row = document.getElementById('doc-row-' + kbId);
     const isOpen = row.classList.contains('open');
 
     if (isOpen) {
-        // 关闭：隐藏 doc-row 和所有 .doc-file-row（sibling 行）
+        // 关闭
         row.classList.remove('open');
         var allRows = row.parentNode.children;
         for (var i = 0; i < allRows.length; i++) {
@@ -132,6 +212,13 @@ async function toggleDocs(kbId) {
                 allRows[i].parentNode.removeChild(allRows[i]);
                 i--;
             }
+        }
+        var uploadRow = document.getElementById('upload-row-' + kbId);
+        if (uploadRow) uploadRow.classList.remove('open');
+        // abort 正在进行的 fetch，防止旧请求返回后重新打开 UI
+        if (_abortControllers[kbId]) {
+            _abortControllers[kbId].abort();
+            delete _abortControllers[kbId];
         }
         return;
     }
@@ -145,6 +232,13 @@ async function toggleDocs(kbId) {
         }
     }
 
+    // abort 旧请求（如果用户快速点多次）
+    if (_abortControllers[kbId]) {
+        _abortControllers[kbId].abort();
+    }
+    const ac = new AbortController();
+    _abortControllers[kbId] = ac;
+
     row.classList.add('open');
 
     if (!_docCache[kbId]) {
@@ -154,11 +248,14 @@ async function toggleDocs(kbId) {
 
     if (cache.loaded) {
         renderDocs(kbId, cache.docs, cache.statusLabel, cache.statusClass);
+        // 显示上传行
+        var uploadRow = document.getElementById('upload-row-' + kbId);
+        if (uploadRow) uploadRow.classList.add('open');
         return;
     }
 
     try {
-        const resp = await fetch(`/admin/kbs/${kbId}/documents`);
+        const resp = await fetch(`/admin/kbs/${kbId}/documents`, { signal: ac.signal });
         const data = await resp.json();
         if (data.error) {
             const errStr = String(data.error);
@@ -173,6 +270,9 @@ async function toggleDocs(kbId) {
             document.getElementById('doc-name-cell-' + kbId).textContent = '暂无文件';
             document.getElementById('doc-status-cell-' + kbId).textContent = '';
             document.getElementById('doc-meta-cell-' + kbId).textContent = '';
+            // 空文件也要显示上传行
+            var uploadRow = document.getElementById('upload-row-' + kbId);
+            if (uploadRow) uploadRow.classList.add('open');
             return;
         }
         const statusLabel = {
@@ -190,6 +290,9 @@ async function toggleDocs(kbId) {
         cache.statusClass = statusClass;
         cache.loaded = true;
         renderDocs(kbId, docs, statusLabel, statusClass);
+        // 渲染完成后显示上传行
+        var uploadRow = document.getElementById('upload-row-' + kbId);
+        if (uploadRow) uploadRow.classList.add('open');
     } catch (e) {
         document.getElementById('doc-name-cell-' + kbId).textContent = '加载失败';
         document.getElementById('doc-status-cell-' + kbId).textContent = '';
@@ -227,8 +330,12 @@ function renderDocs(kbId, docs, statusLabel, statusClass) {
             <td style="padding:3px 8px;border-bottom:1px solid #eee;"><span class="doc-status ${statusClass[doc.display_status] || ''}">${statusLabel[doc.display_status] || doc.display_status || '未知'}</span></td>
             <td style="padding:3px 8px;border-bottom:1px solid #eee;"></td>
             <td style="padding:3px 8px;border-bottom:1px solid #eee;text-align:left;color:#999;font-size:12px;">${doc.word_count ? doc.word_count.toLocaleString() + ' 字' : ''}</td>
+            <td style="padding:3px 4px;border-bottom:1px solid #eee;" class="actions-cell">
+                <button class="del-btn" onclick="deleteDoc(${kbId},'${doc.id}')" title="删除">删除</button>
+            </td>
         </tr>`;
     });
+
     const tempDiv = document.createElement('div');
     tempDiv.innerHTML = '<table style="table-layout:fixed;width:100%;border-collapse:collapse;"><tbody>' + fileRowsHtml + '</tbody></table>';
     const newRows = Array.from(tempDiv.firstChild.rows);
@@ -242,6 +349,61 @@ function escHtml(s) {
     const d = document.createElement('div');
     d.textContent = s;
     return d.innerHTML;
+}
+
+async function uploadDoc(kbId) {
+    const form = document.getElementById('upload-form-' + kbId);
+    const errSpan = document.getElementById('upload-err-' + kbId);
+    errSpan.textContent = '';
+    const fileInput = form.querySelector('input[type=file]');
+    if (!fileInput.files.length) {
+        errSpan.textContent = '请先选择文件';
+        return;
+    }
+    const btn = form.querySelector('button');
+    btn.disabled = true;
+    btn.textContent = '上传中…';
+    try {
+        const fd = new FormData(form);
+        const resp = await fetch(`/admin/kbs/${kbId}/upload`, { method: 'POST', body: fd });
+        const data = await resp.json();
+        if (data.error) {
+            errSpan.textContent = data.error;
+        } else {
+            fileInput.value = '';
+            errSpan.style.color = '#1e7e34';
+            errSpan.textContent = '上传成功，等待处理…';
+            setTimeout(() => {
+                errSpan.textContent = '';
+                errSpan.style.color = '';
+                _docCache[kbId] && (_docCache[kbId].loaded = false);
+                toggleDocs(kbId);
+                toggleDocs(kbId);
+            }, 2000);
+        }
+    } catch (e) {
+        errSpan.textContent = '上传失败: ' + e.message;
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '上传到知识库';
+    }
+}
+
+async function deleteDoc(kbId, docId) {
+    if (!confirm('确认删除该文档？')) return;
+    try {
+        const resp = await fetch(`/admin/kbs/${kbId}/documents/${docId}`, { method: 'DELETE' });
+        const data = await resp.json();
+        if (data.error) {
+            alert('删除失败: ' + data.error);
+        } else {
+            _docCache[kbId] && (_docCache[kbId].loaded = false);
+            toggleDocs(kbId);
+            toggleDocs(kbId);
+        }
+    } catch (e) {
+        alert('删除失败: ' + e.message);
+    }
 }
 </script>
 {% endblock %}

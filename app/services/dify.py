@@ -28,6 +28,8 @@ class DifyKBService:
             'Authorization': f'Bearer {self.api_key}',
             'Content-Type': 'application/json',
         })
+        # 上传参数字段缓存（避免每次上传都查 API）
+        self._doc_form_cache = None
 
     def _post(self, path, json=None, timeout=30):
         url = f'{self.api_url}{path}'
@@ -60,6 +62,114 @@ class DifyKBService:
         except Exception as e:
             logger.error(f"[Dify] Request failed for {url}: {e}")
             raise
+
+    def get_dataset_info(self):
+        """
+        查询 Dify dataset 的元信息（包含 doc_form 等）。
+        结果会被缓存到 self._doc_form_cache。
+        """
+        url = f'{self.api_url}/v1/datasets/{self.dataset_id}'
+        logger.info(f"[Dify] GET dataset info: {url}")
+        try:
+            resp = requests.get(url, headers={'Authorization': f'Bearer {self.api_key}'}, timeout=15)
+            if resp.status_code == 200:
+                return resp.json()
+            else:
+                logger.error(f"[Dify] get_dataset_info failed: HTTP {resp.status_code} | {resp.text[:200]}")
+                return {}
+        except Exception as e:
+            logger.error(f"[Dify] get_dataset_info error: {e}")
+            return {}
+
+    def upload_document(self, file_path, filename=None):
+        """
+        上传文件到知识库，自动探测 dataset doc_form。
+        Dify API: POST /v1/datasets/{dataset_id}/document/create-by-file
+        返回 {'document_id': str, 'batch': str} 或 {'error': str}
+        """
+        import os, json
+        file_name = filename or os.path.basename(file_path)
+
+        # 自动探测 doc_form（缓存）
+        if self._doc_form_cache is None:
+            ds_info = self.get_dataset_info()
+            self._doc_form_cache = ds_info.get('doc_form', 'text_model')
+            logger.info(f"[Dify] Detected doc_form={self._doc_form_cache} for dataset {self.dataset_id}")
+
+        doc_form = self._doc_form_cache
+
+        try:
+            url = f'{self.api_url}/v1/datasets/{self.dataset_id}/document/create-by-file'
+            logger.info(f"[Dify] Upload | url={url} | file={file_name} | doc_form={doc_form}")
+            with open(file_path, 'rb') as f:
+                files = {
+                    'file': (file_name, f, 'application/octet-stream'),
+                }
+                # doc_form 放顶层；hierarchical_model 必须用 mode: hierarchical
+                if doc_form == 'hierarchical_model':
+                    payload = {
+                        "doc_form": "hierarchical_model",
+                        "indexing_technique": "high_quality",
+                        "process_rule": {
+                            "mode": "hierarchical",
+                            "rules": {
+                                "pre_processing_rules": [{"id": "remove_extra_spaces", "enabled": True}],
+                                "segmentation": {
+                                    "separator": "\n\n",
+                                    "max_tokens": 1024,
+                                    "chunk_overlap": 0
+                                },
+                                "parent_mode": "full-doc",
+                                "subchunk_segmentation": {
+                                    "separator": "\n\n",
+                                    "max_tokens": 512,
+                                    "chunk_overlap": 0
+                                }
+                            }
+                        }
+                    }
+                else:
+                    payload = {
+                        "doc_form": "text_model",
+                        "indexing_technique": "high_quality",
+                        "process_rule": {
+                            "mode": "automatic",
+                        }
+                    }
+                data = {
+                    'data': json.dumps(payload),
+                }
+                resp = requests.post(url, files=files, data=data,
+                                    headers={'Authorization': f'Bearer {self.api_key}'},
+                                    timeout=120)
+                logger.info(f"[Dify] Upload response {resp.status_code}: {resp.text[:300]}")
+                if resp.status_code != 200:
+                    return {'error': f'HTTP {resp.status_code}: {resp.text[:300]}'}
+                result = resp.json()
+                doc_id = result.get('document', {}).get('id', '') if isinstance(result.get('document'), dict) else result.get('document', {}).get('id', '')
+                batch = result.get('batch', '')
+                return {'document_id': doc_id, 'batch': batch}
+        except Exception as e:
+            logger.error(f"[Dify] upload_document failed: {e}")
+            return {'error': str(e)}
+
+    def delete_document(self, doc_id):
+        """
+        删除知识库中的文档。
+        Dify API: DELETE /v1/datasets/{dataset_id}/documents/{doc_id}
+        返回 {'success': True} 或 {'error': str}
+        """
+        try:
+            url = f'{self.api_url}/v1/datasets/{self.dataset_id}/documents/{doc_id}'
+            logger.info(f"[Dify] Delete | url={url}")
+            resp = self.session.delete(url, timeout=30)
+            logger.info(f"[Dify] Delete response {resp.status_code}")
+            if resp.status_code in (200, 204):
+                return {'success': True}
+            return {'error': f'HTTP {resp.status_code}: {resp.text[:300]}'}
+        except Exception as e:
+            logger.error(f"[Dify] delete_document failed: {e}")
+            return {'error': str(e)}
 
     def list_documents(self, page=1, page_size=100):
         """
@@ -175,6 +285,98 @@ class DifyKBService:
             'context': context,
             'retrieve_result': retrieve_result,
         }
+
+
+# ==================== Dataset Management (no dataset_id needed) ====================
+
+def _dify_base():
+    """返回 Dify API 基础路径（不剥离 /v1）"""
+    from app.config import get_dify_defaults
+    cfg = get_dify_defaults()
+    return cfg['api_url'].rstrip('/')  # http://10.40.65.209/v1
+
+
+def create_dataset(name, description=''):
+    """
+    在 Dify 创建空知识库。
+    Dify API: POST /datasets  (需要 /v1 前缀)
+    返回 {'id': str, 'name': str} 或 {'error': str}
+    """
+    import requests
+    from app.config import get_dify_defaults
+    cfg = get_dify_defaults()
+    api_key = cfg['api_key']
+    base = cfg['api_url'].rstrip('/')
+
+    try:
+        url = f'{base}/datasets'
+        logger.info(f"[Dify] create_dataset | url={url} | name={name}")
+        resp = requests.post(url,
+                             json={'name': name, 'description': description},
+                             headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
+                             timeout=30)
+        logger.info(f"[Dify] create_dataset response {resp.status_code}: {resp.text[:300]}")
+        if resp.status_code == 200:
+            d = resp.json()
+            return {'id': d.get('id', ''), 'name': d.get('name', name)}
+        return {'error': f'HTTP {resp.status_code}: {resp.text[:300]}'}
+    except Exception as e:
+        logger.error(f"[Dify] create_dataset failed: {e}")
+        return {'error': str(e)}
+
+
+def delete_dataset(dataset_id):
+    """
+    删除 Dify 知识库（连同所有文档）。
+    Dify API: DELETE /datasets/{dataset_id}
+    返回 {'success': True} 或 {'error': str}
+    """
+    import requests
+    from app.config import get_dify_defaults
+    cfg = get_dify_defaults()
+    api_key = cfg['api_key']
+    base = cfg['api_url'].rstrip('/')
+
+    try:
+        url = f'{base}/datasets/{dataset_id}'
+        logger.info(f"[Dify] delete_dataset | url={url}")
+        resp = requests.delete(url,
+                               headers={'Authorization': f'Bearer {api_key}'},
+                               timeout=30)
+        logger.info(f"[Dify] delete_dataset response {resp.status_code}")
+        if resp.status_code in (200, 204):
+            return {'success': True}
+        return {'error': f'HTTP {resp.status_code}: {resp.text[:300]}'}
+    except Exception as e:
+        logger.error(f"[Dify] delete_dataset failed: {e}")
+        return {'error': str(e)}
+
+
+def list_datasets():
+    """
+    列出 Dify 所有知识库。
+    Dify API: GET /datasets
+    返回 {'datasets': [...]} 或 {'error': str}
+    """
+    import requests
+    from app.config import get_dify_defaults
+    cfg = get_dify_defaults()
+    api_key = cfg['api_key']
+    base = cfg['api_url'].rstrip('/')
+
+    try:
+        url = f'{base}/datasets'
+        logger.info(f"[Dify] list_datasets | url={url}")
+        resp = requests.get(url,
+                            headers={'Authorization': f'Bearer {api_key}'},
+                            timeout=30)
+        logger.info(f"[Dify] list_datasets response {resp.status_code}")
+        if resp.status_code == 200:
+            return resp.json()
+        return {'error': f'HTTP {resp.status_code}: {resp.text[:300]}'}
+    except Exception as e:
+        logger.error(f"[Dify] list_datasets failed: {e}")
+        return {'error': str(e)}
 
 
 def build_dify_service(kb_config):

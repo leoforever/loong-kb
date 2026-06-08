@@ -244,10 +244,216 @@ def edit_kb(kb_id):
 @bp.route('/admin/kbs/<int:kb_id>/delete', methods=['POST'])
 @admin_required
 def delete_kb(kb_id):
-    from app.models import delete_kb
-    delete_kb(kb_id)
-    flash('知识库已删除', 'success')
+    """删除知识库：先删本地记录，再删 Dify dataset"""
+    from app.models import get_kb_by_id
+    from app.services.dify import delete_dataset
+    kb = get_kb_by_id(kb_id)
+    if not kb:
+        flash('知识库不存在', 'error')
+        return redirect(url_for('admin.kbs'))
+
+    dataset_id = kb['dify_dataset_id']
+
+    # 删本地记录（Dify 上的 dataset 同步删除）
+    from app.models import delete_kb as db_delete_kb
+    db_delete_kb(kb_id)
+
+    # 同步删除 Dify 上的 dataset
+    result = delete_dataset(dataset_id)
+    if 'error' in result:
+        flash(f'知识库已删除，但 Dify 同步删除失败：{result["error"]}', 'error')
+    else:
+        flash('知识库已删除', 'success')
     return redirect(url_for('admin.kbs'))
+
+
+@bp.route('/admin/kbs/from-template', methods=['POST'])
+@admin_required
+def create_kb_from_template():
+    """从模板创建知识库（在 Dify 创建 dataset + 写入本地记录）"""
+    import json
+    kb_name = request.form.get('kb_name', '').strip()
+    description = request.form.get('description', '').strip()
+    template_id = request.form.get('template_id', '').strip()
+
+    if not kb_name:
+        flash('知识库名称不能为空', 'error')
+        return redirect(url_for('admin.kbs'))
+
+    # 模板参数
+    TEMPLATES = {
+        'text_plain': {
+            'doc_form': 'text_model',
+            'indexing_technique': 'high_quality',
+            'process_rule': {'mode': 'automatic'},
+            'embedding': ('BAAI/bge-m3', 'langgenius/siliconflow/siliconflow'),
+            'reranking': ('BAAI/bge-reranker-v2-m3', 'langgenius/siliconflow/siliconflow'),
+            'reranking_enable': True,
+            'weights': (0.7, 0.3),
+            'top_k': 10,
+            'score_threshold': 0.5,
+            'summary_enable': False,
+        },
+        'text_summary': {
+            'doc_form': 'text_model',
+            'indexing_technique': 'high_quality',
+            'process_rule': {'mode': 'automatic'},
+            'embedding': ('BAAI/bge-m3', 'langgenius/siliconflow/siliconflow'),
+            'reranking': ('BAAI/bge-reranker-v2-m3', 'langgenius/siliconflow/siliconflow'),
+            'reranking_enable': True,
+            'weights': (0.7, 0.3),
+            'top_k': 10,
+            'score_threshold': 0.5,
+            'summary_enable': True,
+            'summary_model': ('minimax-m2.7', 'langgenius/minimax/minimax'),
+        },
+        'hierarchical_plain': {
+            'doc_form': 'hierarchical_model',
+            'indexing_technique': 'high_quality',
+            'process_rule': {
+                'mode': 'hierarchical',
+                'rules': {
+                    'pre_processing_rules': [{'id': 'remove_extra_spaces', 'enabled': True}],
+                    'segmentation': {'separator': '\n\n', 'max_tokens': 1024, 'chunk_overlap': 0},
+                    'parent_mode': 'full-doc',
+                    'subchunk_segmentation': {'separator': '\n\n', 'max_tokens': 512, 'chunk_overlap': 0},
+                },
+            },
+            'embedding': ('BAAI/bge-m3', 'langgenius/siliconflow/siliconflow'),
+            'reranking': ('BAAI/bge-reranker-v2-m3', 'langgenius/siliconflow/siliconflow'),
+            'reranking_enable': True,
+            'weights': (0.7, 0.3),
+            'top_k': 10,
+            'score_threshold': 0.5,
+            'summary_enable': False,
+        },
+        'hierarchical_summary': {
+            'doc_form': 'hierarchical_model',
+            'indexing_technique': 'high_quality',
+            'process_rule': {
+                'mode': 'hierarchical',
+                'rules': {
+                    'pre_processing_rules': [{'id': 'remove_extra_spaces', 'enabled': True}],
+                    'segmentation': {'separator': '\n\n', 'max_tokens': 1024, 'chunk_overlap': 0},
+                    'parent_mode': 'full-doc',
+                    'subchunk_segmentation': {'separator': '\n\n', 'max_tokens': 512, 'chunk_overlap': 0},
+                },
+            },
+            'embedding': ('BAAI/bge-m3', 'langgenius/siliconflow/siliconflow'),
+            'reranking': ('BAAI/bge-reranker-v2-m3', 'langgenius/siliconflow/siliconflow'),
+            'reranking_enable': True,
+            'weights': (0.7, 0.3),
+            'top_k': 10,
+            'score_threshold': 0.5,
+            'summary_enable': True,
+            'summary_model': ('minimax-m2.7', 'langgenius/minimax/minimax'),
+        },
+        'parent_child': {
+            'doc_form': 'hierarchical_model',
+            'indexing_technique': 'high_quality',
+            'process_rule': {
+                'mode': 'hierarchical',
+                'rules': {
+                    'pre_processing_rules': [{'id': 'remove_extra_spaces', 'enabled': True}],
+                    'segmentation': {'separator': '\n\n', 'max_tokens': 512, 'chunk_overlap': 0},
+                    'parent_mode': 'parent-doc',
+                    'subchunk_segmentation': {'separator': '\n', 'max_tokens': 128, 'chunk_overlap': 0},
+                },
+            },
+            'embedding': ('BAAI/bge-m3', 'langgenius/siliconflow/siliconflow'),
+            'reranking': ('BAAI/bge-reranker-v2-m3', 'langgenius/siliconflow/siliconflow'),
+            'reranking_enable': True,
+            'weights': (0.7, 0.3),
+            'top_k': 10,
+            'score_threshold': 0.5,
+            'summary_enable': False,
+        },
+    }
+
+    if template_id not in TEMPLATES:
+        flash(f'未知模板: {template_id}', 'error')
+        return redirect(url_for('admin.kbs'))
+
+    tmpl = TEMPLATES[template_id]
+
+    # 1. 在 Dify 创建 dataset
+    from app.services.dify import create_dataset
+    ds_result = create_dataset(kb_name, description)
+    if 'error' in ds_result:
+        flash(f'创建 Dify 知识库失败：{ds_result["error"]}', 'error')
+        return redirect(url_for('admin.kbs'))
+
+    dataset_id = ds_result['id']
+
+    # 2. 写入本地记录
+    from app.models import create_kb
+    from app.config import get_dify_defaults
+    cfg = get_dify_defaults()
+    kb_id = create_kb(kb_name, description, cfg['api_url'], cfg['api_key'], dataset_id)
+
+    # 3. 给 admin 角色加权限
+    from app.models import get_role_by_name, set_kb_role_permission
+    admin_role = get_role_by_name('admin')
+    if admin_role:
+        set_kb_role_permission(admin_role['role_id'], kb_id, 1, 1)
+
+    flash(f'知识库「{kb_name}」创建成功（Dataset ID: {dataset_id[:20]}...）', 'success')
+    return redirect(url_for('admin.kbs'))
+
+
+@bp.route('/admin/kbs/<int:kb_id>/documents/<path:doc_id>', methods=['DELETE'])
+@admin_required
+def delete_kb_document(kb_id, doc_id):
+    """删除知识库中的文档"""
+    from app.models import get_kb_by_id
+    kb = get_kb_by_id(kb_id)
+    if not kb:
+        return jsonify({'error': '知识库不存在'}), 404
+
+    from app.services.dify import build_dify_service
+    dify = build_dify_service(kb)
+    result = dify.delete_document(doc_id)
+    if 'error' in result:
+        return jsonify(result), 500
+    return jsonify({'success': True})
+
+
+@bp.route('/admin/kbs/<int:kb_id>/upload', methods=['POST'])
+@admin_required
+def upload_kb_document(kb_id):
+    """上传文件到知识库（使用默认配置）"""
+    from app.models import get_kb_by_id
+    kb = get_kb_by_id(kb_id)
+    if not kb:
+        return jsonify({'error': '知识库不存在'}), 404
+
+    if 'file' not in request.files:
+        return jsonify({'error': '未找到上传文件'}), 400
+
+    file = request.files['file']
+    if not file.filename:
+        return jsonify({'error': '文件名为空'}), 400
+
+    import os, uuid
+    tmp_dir = '/tmp/loong-kb-uploads'
+    os.makedirs(tmp_dir, exist_ok=True)
+    suffix = os.path.splitext(file.filename)[1]
+    tmp_path = os.path.join(tmp_dir, f'{uuid.uuid4().hex}{suffix}')
+    file.save(tmp_path)
+
+    from app.services.dify import build_dify_service
+    dify = build_dify_service(kb)
+    result = dify.upload_document(tmp_path, filename=file.filename)
+
+    # 清理临时文件
+    try:
+        os.remove(tmp_path)
+    except Exception:
+        pass
+
+    if 'error' in result:
+        return jsonify(result), 500
+    return jsonify(result)
 
 
 @bp.route('/admin/kbs/<int:kb_id>/documents', methods=['GET'])
