@@ -81,22 +81,27 @@ class DifyKBService:
             logger.error(f"[Dify] get_dataset_info error: {e}")
             return {}
 
-    def upload_document(self, file_path, filename=None):
+    def upload_document(self, file_path, filename=None, doc_form=None, process_rule=None):
         """
-        上传文件到知识库，自动探测 dataset doc_form。
+        上传文件到知识库。
+        doc_form / process_rule 可选：传入则优先于自动检测，用于初始化文档场景。
         Dify API: POST /v1/datasets/{dataset_id}/document/create-by-file
         返回 {'document_id': str, 'batch': str} 或 {'error': str}
         """
         import os, json
         file_name = filename or os.path.basename(file_path)
 
-        # 自动探测 doc_form（缓存）
-        if self._doc_form_cache is None:
+        # 自动探测 doc_form（缓存），除非调用方显式指定
+        if doc_form is not None:
+            detected_doc_form = doc_form
+        elif self._doc_form_cache is None:
             ds_info = self.get_dataset_info()
             self._doc_form_cache = ds_info.get('doc_form', 'text_model')
-            logger.info(f"[Dify] Detected doc_form={self._doc_form_cache} for dataset {self.dataset_id}")
+            detected_doc_form = self._doc_form_cache
+        else:
+            detected_doc_form = self._doc_form_cache
 
-        doc_form = self._doc_form_cache
+        doc_form = detected_doc_form
 
         try:
             url = f'{self.api_url}/v1/datasets/{self.dataset_id}/document/create-by-file'
@@ -105,12 +110,11 @@ class DifyKBService:
                 files = {
                     'file': (file_name, f, 'application/octet-stream'),
                 }
-                # doc_form 放顶层；hierarchical_model 必须用 mode: hierarchical
                 if doc_form == 'hierarchical_model':
                     payload = {
                         "doc_form": "hierarchical_model",
                         "indexing_technique": "high_quality",
-                        "process_rule": {
+                        "process_rule": process_rule or {
                             "mode": "hierarchical",
                             "rules": {
                                 "pre_processing_rules": [{"id": "remove_extra_spaces", "enabled": True}],
@@ -132,7 +136,7 @@ class DifyKBService:
                     payload = {
                         "doc_form": "text_model",
                         "indexing_technique": "high_quality",
-                        "process_rule": {
+                        "process_rule": process_rule or {
                             "mode": "automatic",
                         }
                     }
@@ -151,6 +155,45 @@ class DifyKBService:
                 return {'document_id': doc_id, 'batch': batch}
         except Exception as e:
             logger.error(f"[Dify] upload_document failed: {e}")
+            return {'error': str(e)}
+
+    def upload_document_by_text(self, text, filename='init.txt', doc_form=None, process_rule=None,
+                                 indexing_technique='high_quality', summary_index_setting=None):
+        """
+        通过纯文本创建文档（无需文件）。
+        Dify API: POST /v1/datasets/{dataset_id}/document/create-by-text
+        doc_form/process_rule/indexing_technique/summary_index_setting 均可由调用方显式指定。
+        返回 {'document_id': str, 'batch': str} 或 {'error': str}
+        """
+        import json
+        try:
+            url = f'{self.api_url}/v1/datasets/{self.dataset_id}/document/create-by-text'
+            logger.info(f"[Dify] UploadByText | url={url} | doc_form={doc_form}")
+
+            payload = {
+                'name': filename,
+                'text': text,
+                'indexing_technique': indexing_technique,
+            }
+            if doc_form:
+                payload['doc_form'] = doc_form
+            if process_rule:
+                payload['process_rule'] = process_rule
+            if summary_index_setting:
+                payload['summary_index_setting'] = summary_index_setting
+
+            resp = requests.post(url, json=payload,
+                                 headers={'Authorization': f'Bearer {self.api_key}', 'Content-Type': 'application/json'},
+                                 timeout=30)
+            logger.info(f"[Dify] UploadByText response {resp.status_code}: {resp.text[:300]}")
+            if resp.status_code != 200:
+                return {'error': f'HTTP {resp.status_code}: {resp.text[:300]}'}
+            result = resp.json()
+            doc_id = result.get('document', {}).get('id', '') if isinstance(result.get('document'), dict) else ''
+            batch = result.get('batch', '')
+            return {'document_id': doc_id, 'batch': batch}
+        except Exception as e:
+            logger.error(f"[Dify] upload_document_by_text failed: {e}")
             return {'error': str(e)}
 
     def delete_document(self, doc_id):
@@ -349,6 +392,48 @@ def delete_dataset(dataset_id):
         return {'error': f'HTTP {resp.status_code}: {resp.text[:300]}'}
     except Exception as e:
         logger.error(f"[Dify] delete_dataset failed: {e}")
+        return {'error': str(e)}
+
+
+def patch_dataset(dataset_id, indexing_technique=None, embedding_model=None,
+                   reranking_model=None, retrieval_model=None):
+    """
+    PATCH /datasets/{dataset_id} 配置索引/检索参数。
+    可用字段：indexing_technique, embedding_model, reranking_model, retrieval_model
+    注意：doc_form 和 process_rule 不支持 PATCH，必须通过上传初始化文档来固化。
+    """
+    import requests
+    from app.config import get_dify_defaults
+    cfg = get_dify_defaults()
+    api_key = cfg['api_key']
+    base = cfg['api_url'].rstrip('/')
+
+    payload = {}
+    if indexing_technique:
+        payload['indexing_technique'] = indexing_technique
+    if embedding_model:
+        payload['embedding_model'] = embedding_model
+    if reranking_model:
+        payload['reranking_model'] = reranking_model
+    if retrieval_model:
+        payload['retrieval_model'] = retrieval_model
+
+    if not payload:
+        return {'error': 'no fields to patch'}
+
+    try:
+        url = f'{base}/datasets/{dataset_id}'
+        logger.info(f"[Dify] patch_dataset | url={url} | fields={list(payload.keys())}")
+        resp = requests.patch(url,
+                              json=payload,
+                              headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
+                              timeout=30)
+        logger.info(f"[Dify] patch_dataset response {resp.status_code}: {resp.text[:300]}")
+        if resp.status_code == 200:
+            return {'success': True}
+        return {'error': f'HTTP {resp.status_code}: {resp.text[:300]}'}
+    except Exception as e:
+        logger.error(f"[Dify] patch_dataset failed: {e}")
         return {'error': str(e)}
 
 

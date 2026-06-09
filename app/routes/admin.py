@@ -356,7 +356,7 @@ def create_kb_from_template():
                 'rules': {
                     'pre_processing_rules': [{'id': 'remove_extra_spaces', 'enabled': True}],
                     'segmentation': {'separator': '\n\n', 'max_tokens': 512, 'chunk_overlap': 0},
-                    'parent_mode': 'parent-doc',
+                    'parent_mode': 'full-doc',
                     'subchunk_segmentation': {'separator': '\n', 'max_tokens': 128, 'chunk_overlap': 0},
                 },
             },
@@ -376,7 +376,7 @@ def create_kb_from_template():
 
     tmpl = TEMPLATES[template_id]
 
-    # 1. 在 Dify 创建 dataset
+    # 1. 在 Dify 创建空 dataset（name + description）
     from app.services.dify import create_dataset
     ds_result = create_dataset(kb_name, description)
     if 'error' in ds_result:
@@ -385,13 +385,87 @@ def create_kb_from_template():
 
     dataset_id = ds_result['id']
 
-    # 2. 写入本地记录
+    # 2. PATCH 配置 indexing_technique + embedding + retrieval_model
+    # 注意：Dify 要求 reranking_enable=true 时 reranking_mode 必填（reranking_model | weighted_score）
+    # reranking_model 放在 retrieval_model 内部，不要通过 patch_dataset 顶层 reranking_model 参数传递（会重复）
+    from app.services.dify import patch_dataset
+    retrieval_cfg = {
+        'search_method': 'hybrid_search',
+        'reranking_enable': tmpl.get('reranking_enable', False),
+        'reranking_mode': 'reranking_model' if tmpl.get('reranking_enable') else None,
+        'reranking_model': {
+            'reranking_model_name': tmpl['reranking'][0],
+            'reranking_provider_name': tmpl['reranking'][1],
+        } if tmpl.get('reranking_enable') else None,
+        'top_k': tmpl.get('top_k', 10),
+        'score_threshold_enabled': bool(tmpl.get('score_threshold', 0)),
+        'score_threshold': tmpl.get('score_threshold', 0),
+        'weights': {
+            'weight_type': 'customized',
+            'keyword_setting': {'keyword_weight': tmpl.get('weights', (0.7, 0.3))[1]},
+            'vector_setting': {
+                'vector_weight': tmpl.get('weights', (0.7, 0.3))[0],
+                'embedding_model_name': tmpl['embedding'][0],
+                'embedding_provider_name': tmpl['embedding'][1],
+            },
+        },
+    }
+    patch_result = patch_dataset(
+        dataset_id,
+        embedding_model=tmpl['embedding'][0],
+        retrieval_model=retrieval_cfg,
+    )
+    if 'error' in patch_result:
+        flash(f'配置 Dify 知识库参数失败：{patch_result["error"]}', 'error')
+        return redirect(url_for('admin.kbs'))
+
+    # 3. 上传"初始化文档"以固化 doc_form + process_rule + indexing_technique
+    #    通过 create-by-text 接口，无需文件，上传后保留作为锚点
+    init_content = '初始化文档，仅用于触发 Dify 知识库配置固化。'
+
+    from app.services.dify import DifyKBService
+    dify_init = DifyKBService(dataset_id=dataset_id)
+
+    # 显式传入模板的 doc_form 和 process_rule，避免自动检测到 None
+    tmpl_doc_form = tmpl.get('doc_form', 'text_model')
+    tmpl_process_rule = tmpl.get('process_rule')
+
+    # 构造 summary_index_setting（仅当 summary_enable=True 时）
+    summary_index_setting = None
+    if tmpl.get('summary_enable'):
+        summary_model_name, summary_model_provider = tmpl.get('summary_model', ('minimax-text-01', 'langgenius/minimax/minimax'))
+        summary_index_setting = {
+            'enable': True,
+            'model_name': summary_model_name,
+            'model_provider_name': summary_model_provider,
+        }
+
+    upload_result = dify_init.upload_document_by_text(
+        text=init_content,
+        filename='__init__.txt',
+        doc_form=tmpl_doc_form,
+        process_rule=tmpl_process_rule,
+        indexing_technique=tmpl.get('indexing_technique', 'high_quality'),
+        summary_index_setting=summary_index_setting,
+    )
+
+    if 'error' in upload_result:
+        flash(f'初始化文档上传失败（配置未固化）：{upload_result["error"]}', 'error')
+        return redirect(url_for('admin.kbs'))
+
+    # 等待索引完成（初始化文档作为锚点保留，后续文档会自动沿用其 doc_form）
+    import time
+    doc_id = upload_result.get('document_id', '')
+    if doc_id:
+        time.sleep(5)  # 等待索引完成
+
+    # 4. 写入本地记录
     from app.models import create_kb
     from app.config import get_dify_defaults
     cfg = get_dify_defaults()
     kb_id = create_kb(kb_name, description, cfg['api_url'], cfg['api_key'], dataset_id)
 
-    # 3. 给 admin 角色加权限
+    # 5. 给 admin 角色加权限
     from app.models import get_role_by_name, set_kb_role_permission
     admin_role = get_role_by_name('admin')
     if admin_role:
