@@ -85,8 +85,7 @@
                 {% if edit_kb_id == kb.kb_id %}
                 <form method="post" action="/admin/kbs/{{ kb.kb_id }}" style="display:inline-flex; gap:6px; align-items:center;">
                     <input name="kb_name" value="{{ kb.kb_name }}" required style="padding:4px 8px; border:1px solid #ddd; border-radius:4px; font-size:13px; width:120px;">
-                    <input name="description" value="{{ kb.description or '' }}" placeholder="描述" style="padding:4px 8px; border:1px solid #ddd; border-radius:4px; font-size:13px; width:140px;">
-                    <input name="dify_dataset_id" value="{{ kb.dify_dataset_id }}" required style="padding:4px 8px; border:1px solid #ddd; border-radius:4px; font-size:13px; width:200px;">
+                    <input name="description" value="{{ kb.description or '' }}" placeholder="描述" style="padding:4px 8px; border:1px solid #ddd; border-radius:4px; font-size:13px; width:200px;">
                     <button type="submit" class="btn btn-primary" style="padding:4px 12px; font-size:12px;">保存</button>
                     <a href="/admin/kbs" class="btn btn-secondary" style="padding:4px 12px; font-size:12px;">取消</a>
                 </form>

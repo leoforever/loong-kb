@@ -370,16 +370,13 @@ def edit_kb(kb_id):
             request.form.get('description', '').strip(),
             cfg['api_url'],
             cfg['api_key'],
-            request.form.get('dify_dataset_id', '').strip(),
+            kb['dify_dataset_id'],
         )
         flash('知识库已更新', 'success')
         return redirect(url_for('admin.kbs'))
 
-    return redirect(url_for('admin.kbs'))
-
-    # GET: show simple inline edit via query param
-    from flask import redirect
-    return redirect(f'/admin/kbs?edit={kb_id}')
+    # GET: show edit form (redirect to kbs list with edit param)
+    return redirect(url_for('admin.kbs', edit=kb_id))
 
 
 @bp.route('/admin/kbs/<int:kb_id>/delete', methods=['POST'])
