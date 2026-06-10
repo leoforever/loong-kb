@@ -30,7 +30,7 @@ def get_user_accessible_kbs(user_id):
 
     perms = get_kb_permissions_for_roles(role_ids)
     all_kbs = get_all_kbs()
-    accessible = [kb for kb in all_kbs if perms.get(kb['kb_id'], {}).get('can_read')]
+    accessible = [kb for kb in all_kbs if perms.get(kb['kb_id'], {}).get('can_access')]
     return accessible
 
 
@@ -119,7 +119,7 @@ def ask():
 
     perms = get_kb_permissions_for_roles(role_ids)
     all_kbs = get_all_kbs()
-    accessible_kbs = [kb for kb in all_kbs if perms.get(kb['kb_id'], {}).get('can_read')]
+    accessible_kbs = [kb for kb in all_kbs if perms.get(kb['kb_id'], {}).get('can_access')]
 
     # Filter to selected KBs if specified
     if requested_kb_ids is not None:
@@ -219,7 +219,7 @@ def chat(kb_id):
 
     perms = get_kb_permissions_for_roles(role_ids)
     perm = perms.get(kb_id, {})
-    if not perm.get('can_read'):
+    if not perm.get('can_access'):
         return '无权限访问该知识库', 403
 
     if request.method == 'POST':
@@ -248,7 +248,7 @@ def chat(kb_id):
         save_query_log(session['user_id'], kb_id, query, answer, 0)
         return jsonify({'answer': answer, 'chunks': chunks})
 
-    return render_template('qa_chat.html', kb=kb, can_query=bool(perm.get('can_query')))
+    return render_template('qa_chat.html', kb=kb, can_access=bool(perm.get('can_access')))
 
 
 @bp.route('/qa/<int:kb_id>/history')
@@ -283,7 +283,7 @@ def kb_documents(kb_id):
         role_ids = [row['role_id'] for row in c.fetchall()]
 
     perms = get_kb_permissions_for_roles(role_ids)
-    if not perms.get(kb_id, {}).get('can_read'):
+    if not perms.get(kb_id, {}).get('can_access'):
         return jsonify({'error': '无权限'}), 403
 
     if not kb.get('dify_dataset_id'):

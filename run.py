@@ -38,15 +38,33 @@ def create_app():
     def load_current_user():
         g.user = None
         g.is_admin = False
+        g.has_edit_permission = False
         user_id = session.get('user_id')
         if user_id:
-            from app.models import get_user_by_id, get_user_roles as _gur
+            from app.models import get_user_by_id, get_user_roles as _gur, get_kb_permissions_for_roles, get_db_conn
             g.user = get_user_by_id(user_id)
             g.is_admin = 'admin' in _gur(user_id)
+            # Check if user has any KB with can_edit or can_manage
+            role_names = _gur(user_id)
+            if role_names:
+                with get_db_conn() as conn:
+                    c = conn.cursor()
+                    c.execute('SELECT role_id FROM roles WHERE role_name IN (%s)' %
+                              ','.join(['?'] * len(role_names)), role_names)
+                    role_ids = [row['role_id'] for row in c.fetchall()]
+                perms = get_kb_permissions_for_roles(role_ids)
+                g.has_edit_permission = any(
+                    p.get('can_edit') or p.get('can_manage')
+                    for p in perms.values()
+                )
 
     @app.context_processor
     def inject_globals():
-        return dict(is_admin=getattr(g, 'is_admin', False), request=request)
+        return dict(
+            is_admin=getattr(g, 'is_admin', False),
+            has_edit_permission=getattr(g, 'has_edit_permission', False),
+            request=request
+        )
 
     @app.template_global()
     def get_user_roles(user_id):

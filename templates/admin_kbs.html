@@ -47,20 +47,32 @@
                 <h1 class="page-title">知识库配置</h1>
                 <p style="color:#888; margin-top:4px; font-size:14px;">管理 Dify 知识库配置</p>
             </div>
+            {% if is_admin %}
             <button class="btn btn-primary" onclick="showCreateKB()">+ 添加知识库</button>
+            {% endif %}
+            {% if is_admin %}
             <button class="btn btn-secondary" style="margin-left:8px;" onclick="syncKBs()">🔄 同步 Dify</button>
+            {% endif %}
         </div>
 
 <div class="card">
     <h3 class="section-title">知识库列表</h3>
     <table style="table-layout:fixed; width:100%;">
-        <thead><tr><th style="width:5%">ID</th><th style="width:15%">名称</th><th style="width:25%">描述</th><th style="width:15%">Dify Dataset ID</th><th style="width:8%">状态</th><th style="width:18%">操作</th><th style="width:14%">文件</th></tr></thead>
+        <thead><tr><th style="width:5%">ID</th><th style="width:15%">名称</th><th style="width:20%">描述</th><th style="width:12%">模板</th><th style="width:13%">Dify Dataset ID</th><th style="width:8%">状态</th><th style="width:18%">操作</th><th style="width:9%">文件</th></tr></thead>
         <tbody>
         {% for kb in kbs %}
+        {% if kb.kb_id in accessible_kb_ids or is_admin %}
         <tr>
             <td style="color:#999;">{{ loop.index }}</td>
             <td><strong>{{ kb.kb_name }}</strong></td>
             <td style="color:#888; font-size:14px;">{{ kb.description or '-' }}</td>
+            <td>
+                {% if kb.template_type == 'text_plain' %}<span style="font-size:12px;color:#555;">通用分段</span>
+                {% elif kb.template_type == 'hierarchical_full' %}<span style="font-size:12px;color:#555;">父子分段-全文</span>
+                {% elif kb.template_type == 'hierarchical_paragraph' %}<span style="font-size:12px;color:#555;">父子分段-段落</span>
+                {% elif kb.template_type %}<span style="font-size:12px;color:#888;">{{ kb.template_type }}</span>
+                {% else %}<span style="font-size:12px;color:#999;">-</span>{% endif %}
+            </td>
             <td><code style="font-size:12px; background:#f5f5f5; padding:2px 6px; border-radius:4px;">{{ kb.dify_dataset_id }}</code></td>
             <td>
                 {% if kb.is_active %}
@@ -79,14 +91,19 @@
                     <a href="/admin/kbs" class="btn btn-secondary" style="padding:4px 12px; font-size:12px;">取消</a>
                 </form>
                 {% else %}
+                {% if kb.kb_id in manageable_kb_ids %}
                 <a href="/admin/kbs?edit={{ kb.kb_id }}" class="btn btn-outline" style="padding:4px 12px; font-size:12px;">编辑</a>
                 <button class="btn btn-danger" style="padding:4px 12px; font-size:12px;" onclick="deleteKB({{ kb.kb_id }}, '{{ kb.kb_name }}')">删除</button>
+                {% endif %}
+                {% if kb.kb_id in accessible_kb_ids %}
                 <button class="kb-doc-toggle" onclick="toggleDocs({{ kb.kb_id }})">文件 ▾</button>
+                {% endif %}
                 {% endif %}
             </td>
             <td></td>
         </tr>
-        <tr class="kb-doc-row open" id="doc-row-{{ kb.kb_id }}">
+        {% if kb.kb_id in accessible_kb_ids or is_admin %}
+        <tr class="kb-doc-row" id="doc-row-{{ kb.kb_id }}" data-editable="{% if kb.kb_id in editable_kb_ids or is_admin %}1{% else %}0{% endif %}">
             <td style="padding:3px 8px;border-bottom:1px solid #eee;"></td>
             <td style="padding:3px 8px;border-bottom:1px solid #eee;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#333;font-size:14px;" id="doc-name-cell-{{ kb.kb_id }}"></td>
             <td style="padding:3px 8px;border-bottom:1px solid #eee;"></td>
@@ -95,6 +112,7 @@
             <td style="padding:3px 8px;border-bottom:1px solid #eee;text-align:left;font-size:14px;" id="doc-meta-cell-{{ kb.kb_id }}"></td>
             <td style="padding:3px 8px;border-bottom:1px solid #eee;"></td>
         </tr>
+        {% if kb.kb_id in editable_kb_ids or is_admin %}
         <tr class="doc-upload-row" id="upload-row-{{ kb.kb_id }}">
             <td style="padding:3px 8px;border-bottom:1px solid #ddd;"></td>
             <td style="padding:3px 8px;border-bottom:1px solid #ddd;" colspan="5">
@@ -106,6 +124,9 @@
             </td>
             <td style="padding:3px 8px;border-bottom:1px solid #ddd;"></td>
         </tr>
+        {% endif %}
+        {% endif %}
+        {% endif %}
         {% endfor %}
         </tbody>
     </table>
@@ -115,13 +136,13 @@
 <div id="createKBModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:200; justify-content:center; align-items:center;">
     <div style="background:white; border-radius:12px; padding:32px; width:560px; max-width:90%;">
         <h3 style="margin-bottom:20px; font-size:18px;">新建知识库</h3>
-        <form method="post" action="/admin/kbs/from-template">
+        <form method="post" action="/admin/kbs/from-template" onsubmit="return validateCreateKB()">
             <div class="form-group"><label>知识库名称</label><input name="kb_name" required placeholder="如：龙芯产品手册v2.0" style="width:100%;"></div>
             <div class="form-group"><label>描述（可选）</label><input name="description" placeholder="简要描述" style="width:100%;"></div>
             <div class="form-group"><label>选择模板</label></div>
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:16px;">
                 <label class="tmpl-card" onclick="selectTmpl('text_plain')">
-                    <input type="radio" name="template_id" value="text_plain" checked style="display:none;">
+                    <input type="radio" name="template_id" value="text_plain" style="display:none;">
                     <div class="tmpl-inner">
                         <strong>通用分段</strong>
                         <span>text_model · 自动分句</span>
@@ -145,6 +166,7 @@
                     </div>
                 </label>
             </div>
+            <div id="tmpl-error" style="color:#c5221f;font-size:13px;margin-bottom:8px;display:none;">请选择一个模板</div>
             <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:16px;">
                 <button type="button" class="btn btn-secondary" onclick="hideModal('createKBModal')">取消</button>
                 <button type="submit" class="btn btn-primary">创建知识库</button>
@@ -164,7 +186,25 @@
 </style>
 
 <script>
-function showCreateKB() { document.getElementById('createKBModal').style.display = 'flex'; }
+function showCreateKB() {
+    document.getElementById('createKBModal').style.display = 'flex';
+    // 默认选中第一个模板
+    selectTmpl('text_plain');
+    // 清除错误提示
+    var err = document.getElementById('tmpl-error');
+    if (err) err.style.display = 'none';
+}
+function validateCreateKB() {
+    var selected = document.querySelector('input[name="template_id"]:checked');
+    if (!selected) {
+        var err = document.getElementById('tmpl-error');
+        if (err) {
+            err.style.display = 'block';
+        }
+        return false;
+    }
+    return true;
+}
 function syncKBs() {
     if (!confirm('将从 Dify API 同步知识库列表，是否继续？')) return;
     fetch('/admin/kbs/sync', {method:'POST'}).then(r => location.reload());
@@ -243,8 +283,13 @@ async function toggleDocs(kbId) {
         const data = await resp.json();
         if (data.error) {
             const errStr = String(data.error);
-            document.getElementById('doc-name-cell-' + kbId).textContent =
-                (errStr.includes('not_found') || errStr.includes('404')) ? '暂无文件（知识库不存在或未同步）' : '加载失败';
+            if (resp.status === 403 || errStr.includes('forbidden') || errStr.includes('无权限')) {
+                document.getElementById('doc-name-cell-' + kbId).textContent = '无权限查看文件';
+            } else if (errStr.includes('not_found') || errStr.includes('404')) {
+                document.getElementById('doc-name-cell-' + kbId).textContent = '暂无文件（知识库不存在或未同步）';
+            } else {
+                document.getElementById('doc-name-cell-' + kbId).textContent = '加载失败';
+            }
             document.getElementById('doc-status-cell-' + kbId).textContent = '';
             document.getElementById('doc-meta-cell-' + kbId).textContent = '';
             return;
@@ -286,6 +331,7 @@ async function toggleDocs(kbId) {
 
 function renderDocs(kbId, docs, statusLabel, statusClass) {
     const row = document.getElementById('doc-row-' + kbId);
+    const isEditable = row && row.getAttribute('data-editable') === '1';
     const nameCell = document.getElementById('doc-name-cell-' + kbId);
     const statusCell = document.getElementById('doc-status-cell-' + kbId);
     const metaCell = document.getElementById('doc-meta-cell-' + kbId);
@@ -315,7 +361,7 @@ function renderDocs(kbId, docs, statusLabel, statusClass) {
             <td style="padding:3px 8px;border-bottom:1px solid #eee;"></td>
             <td style="padding:3px 8px;border-bottom:1px solid #eee;text-align:left;color:#999;font-size:12px;">${doc.word_count ? doc.word_count.toLocaleString() + ' 字' : ''}</td>
             <td style="padding:3px 4px;border-bottom:1px solid #eee;" class="actions-cell">
-                <button class="del-btn" onclick="deleteDoc(${kbId},'${doc.id}')" title="删除">删除</button>
+                ${isEditable ? '<button class="del-btn" data-doc-id="${doc.id}" onclick="deleteDoc(' + kbId + ',this.getAttribute(\'data-doc-id\'))" title="删除">删除</button>' : ''}
             </td>
         </tr>`;
     });

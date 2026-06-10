@@ -28,11 +28,17 @@ else
 fi
 
 # 停止旧服务
-echo "[1/2] 停止旧服务..."
+echo "[1/3] 停止旧服务..."
 bash "$APP_DIR/stop.sh" 2>/dev/null || true
 
+# 初始化数据库和 admin 用户（全新部署时）
+echo "[2/3] 初始化数据库和 admin 用户..."
+cd "$APP_DIR"
+python3 setup.py > /tmp/loong-kb-setup.log 2>&1
+echo "  初始化完成"
+
 # 启动服务
-echo "[2/2] 启动服务..."
+echo "[3/3] 启动服务..."
 cd "$APP_DIR"
 nohup gunicorn -c gunicorn_config.py wsgi:app > /tmp/loong-kb.log 2>&1 &
 echo "PID: $!"
@@ -40,4 +46,6 @@ sleep 2
 echo ""
 echo "=== 部署完成 ==="
 echo "访问地址: http://${DISPLAY_IP}:${SERVER_PORT}"
+echo "管理员账号: admin / admin123"
 echo "日志: /tmp/loong-kb.log"
+echo "初始化日志: /tmp/loong-kb-setup.log"

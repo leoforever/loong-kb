@@ -67,7 +67,8 @@
                     <tr>
                         <th style="width:40%;">知识库</th>
                         <th style="text-align:center;">可访问</th>
-                        <th style="text-align:center;">可问答</th>
+                        <th style="text-align:center;">可编辑</th>
+                        <th style="text-align:center;">可管理</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -78,10 +79,13 @@
                             <div style="font-size:12px; color:#999; margin-top:2px;">{{ kb.description or '无描述' }}</div>
                         </td>
                         <td style="text-align:center;">
-                            <input type="checkbox" name="kb_read_{{ kb.kb_id }}" id="cr_{{ kb.kb_id }}" style="width:18px; height:18px; cursor:pointer;">
+                            <input type="checkbox" name="kb_access_{{ kb.kb_id }}" id="ca_{{ kb.kb_id }}" style="width:18px; height:18px; cursor:pointer;" onchange="syncAccess({{ kb.kb_id }})">
                         </td>
                         <td style="text-align:center;">
-                            <input type="checkbox" name="kb_query_{{ kb.kb_id }}" id="cq_{{ kb.kb_id }}" style="width:18px; height:18px; cursor:pointer;">
+                            <input type="checkbox" name="kb_edit_{{ kb.kb_id }}" id="ce_{{ kb.kb_id }}" style="width:18px; height:18px; cursor:pointer;" onchange="syncEdit({{ kb.kb_id }})">
+                        </td>
+                        <td style="text-align:center;">
+                            <input type="checkbox" name="kb_manage_{{ kb.kb_id }}" id="cm_{{ kb.kb_id }}" style="width:18px; height:18px; cursor:pointer;" onchange="syncManage({{ kb.kb_id }})">
                         </td>
                     </tr>
                     {% endfor %}
@@ -90,7 +94,7 @@
 
             <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:24px; padding-top:16px; border-top:1px solid #eee;">
                 <button type="button" class="btn btn-secondary" onclick="hideModal('permModal')">取消</button>
-                <button type="submit" class="btn btn-primary">保存配置</button>
+                <button type="submit" class="btn btn-primary" id="permSaveBtn">保存配置</button>
             </div>
         </form>
         {% endif %}
@@ -103,26 +107,70 @@ let currentRoleId = null;
 function showCreateRole() {
     document.getElementById('createRoleModal').style.display = 'flex';
 }
+
 function editRoleKbs(roleId, roleName) {
     currentRoleId = roleId;
     document.getElementById('permTitle').textContent = `为「${roleName}」分配知识库`;
-    document.getElementById('permSubtitle').textContent = '勾选该角色可以访问的知识库';
+    document.getElementById('permSubtitle').textContent = '勾选该角色对知识库的权限（上级权限自动包含下级）';
     document.getElementById('permRoleId').value = roleId;
 
-    // Uncheck all
-    document.querySelectorAll('[id^=cr_], [id^=cq_]').forEach(el => el.checked = false);
+    // admin 角色不可修改权限，禁用所有复选框并隐藏保存按钮
+    const isAdmin = (roleId == 1);
+    document.querySelectorAll('[id^="ca_"], [id^="ce_"], [id^="cm_"]').forEach(el => {
+        el.disabled = isAdmin;
+    });
+    const saveBtn = document.getElementById('permSaveBtn');
+    if (saveBtn) {
+        saveBtn.style.display = isAdmin ? 'none' : 'inline-block';
+    }
+    document.getElementById('permSubtitle').textContent = isAdmin
+        ? 'admin 角色拥有所有权限且不可被修改'
+        : '勾选该角色对知识库的权限（上级权限自动包含下级）';
 
+    // Uncheck all first
+    document.querySelectorAll('[id^=ca_], [id^=ce_], [id^=cm_]').forEach(el => el.checked = false);
     // Fetch existing permissions
     fetch(`/admin/roles/${roleId}/permissions`).then(r => r.json()).then(data => {
         data.forEach(p => {
-            const cr = document.getElementById(`cr_${p.kb_id}`);
-            const cq = document.getElementById(`cq_${p.kb_id}`);
-            if (cr) cr.checked = p.can_read == 1;
-            if (cq) cq.checked = p.can_query == 1;
+            const ca = document.getElementById(`ca_${p.kb_id}`);
+            const ce = document.getElementById(`ce_${p.kb_id}`);
+            const cm = document.getElementById(`cm_${p.kb_id}`);
+            if (ca) ca.checked = p.can_access == 1;
+            if (ce) ce.checked = p.can_edit == 1;
+            if (cm) cm.checked = p.can_manage == 1;
         });
     });
-
     document.getElementById('permModal').style.display = 'flex';
+}
+
+// 联动逻辑：manage → edit → access
+function syncManage(kbId) {
+    const cm = document.getElementById(`cm_${kbId}`);
+    const ce = document.getElementById(`ce_${kbId}`);
+    const ca = document.getElementById(`ca_${kbId}`);
+    if (cm.checked) {
+        ce.checked = true;
+        ca.checked = true;
+    }
+}
+function syncEdit(kbId) {
+    const ce = document.getElementById(`ce_${kbId}`);
+    const ca = document.getElementById(`ca_${kbId}`);
+    if (ce.checked) {
+        ca.checked = true;
+    } else {
+        const cm = document.getElementById(`cm_${kbId}`);
+        cm.checked = false;
+    }
+}
+function syncAccess(kbId) {
+    const ca = document.getElementById(`ca_${kbId}`);
+    const ce = document.getElementById(`ce_${kbId}`);
+    const cm = document.getElementById(`cm_${kbId}`);
+    if (!ca.checked) {
+        ce.checked = false;
+        cm.checked = false;
+    }
 }
 function deleteRole(roleId) {
     if (!confirm('确认删除该角色？')) return;

@@ -244,6 +244,24 @@
                 </svg></span>
                 <span class="text">知识库管理</span>
             </a>
+            {% elif has_edit_permission %}
+            <div class="page-sidebar-title" style="padding:12px 16px 4px; font-size:11px; color:#ccc;">文件管理</div>
+            <a href="/admin/kbs" class="sidebar-link {% if '/admin/kbs' in request.path %}active{% endif %}">
+                <span class="icon"><svg width="20" height="20" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0">
+                    <defs>
+                        <linearGradient id="g4" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stop-color="#FF5555"/>
+                            <stop offset="100%" stop-color="#CC0000"/>
+                        </linearGradient>
+                    </defs>
+                    <path d="M10 30 C10 18 20 10 34 12 C42 13 46 20 46 28 L46 36 C46 44 42 48 34 50 L20 52 L12 60 L18 50 L20 42 L20 32 Z" fill="url(#g4)"/>
+                    <circle cx="34" cy="28" r="4" fill="white"/>
+                    <path d="M46 30 L58 25 M46 34 L58 34 M46 38 L58 42" stroke="#CC0000" stroke-width="2.5" stroke-linecap="round"/>
+                    <path d="M16 20 C20 17 25 20 26 25 C23 30 19 32 14 29 C14 24 14 20 16 20" fill="#AA0000" opacity="0.4"/>
+                    <path d="M22 26 C26 23 31 26 33 31 C30 36 25 38 20 35 C20 30 20 26 22 26" fill="#AA0000" opacity="0.4"/>
+                </svg></span>
+                <span class="text">文件管理</span>
+            </a>
             {% endif %}
         </nav>
         <div class="sidebar-user">

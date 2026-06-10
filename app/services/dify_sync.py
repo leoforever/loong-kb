@@ -94,10 +94,10 @@ def sync_kbs_from_dify():
 
                     admin_role = get_role_by_name('admin')
                     if admin_role:
-                        set_kb_role_permission(admin_role['role_id'], kb_id, can_read=1, can_query=1)
+                        set_kb_role_permission(admin_role['role_id'], kb_id, can_access=1, can_edit=1, can_manage=1)
                     viewer_role = get_role_by_name('viewer')
                     if viewer_role:
-                        set_kb_role_permission(viewer_role['role_id'], kb_id, can_read=1, can_query=1)
+                        set_kb_role_permission(viewer_role['role_id'], kb_id, can_access=1, can_edit=1, can_manage=1)
 
                     created += 1
                     logger.info(f"[Sync] Created KB: {kb_name} (Dataset ID: {dataset_id[:20]}...)")

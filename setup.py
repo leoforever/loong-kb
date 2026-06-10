@@ -88,8 +88,8 @@ def setup():
         kb_id = kbs[0]['kb_id'] if kbs else None
 
     if kb_id:
-        set_kb_role_permission(admin_role['role_id'], kb_id, can_read=1, can_query=1)
-        set_kb_role_permission(viewer_role['role_id'], kb_id, can_read=1, can_query=1)
+        set_kb_role_permission(admin_role['role_id'], kb_id, can_access=1, can_edit=1, can_manage=1)
+        set_kb_role_permission(viewer_role['role_id'], kb_id, can_access=1, can_edit=1, can_manage=1)
         print(f"✓ 权限配置完成: admin(viewer) -> 龙芯产品手册")
 
     print("\n✅ 初始化完成!")

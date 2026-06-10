@@ -86,13 +86,18 @@ def init_db():
         ''')
 
         # Role <-> KB permissions (which roles can access which KBs)
+        # can_access: 可查看文件列表（不能上传/删除文档）
+        # can_edit: 可上传/删除文档（包含 can_access，但不能编辑/删除知识库）
+        # can_manage: 可修改知识库配置（名称/描述），不可修改 ID（包含 can_edit 和 can_access）
+        # admin 角色默认拥有所有权限，且不可被修改
         c.execute('''
             CREATE TABLE IF NOT EXISTS role_kb_permissions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 role_id INTEGER NOT NULL,
                 kb_id INTEGER NOT NULL,
-                can_read INTEGER DEFAULT 1,
-                can_query INTEGER DEFAULT 1,
+                can_access INTEGER DEFAULT 0,
+                can_edit INTEGER DEFAULT 0,
+                can_manage INTEGER DEFAULT 0,
                 FOREIGN KEY (role_id) REFERENCES roles(role_id) ON DELETE CASCADE,
                 FOREIGN KEY (kb_id) REFERENCES kb_configs(kb_id) ON DELETE CASCADE,
                 UNIQUE(role_id, kb_id)
@@ -222,13 +227,13 @@ def remove_user_role(user_id, role_id):
 # KB config operations
 # ==============================
 
-def create_kb(name, description, dify_api_url, dify_api_key, dify_dataset_id):
+def create_kb(name, description, dify_api_url, dify_api_key, dify_dataset_id, template_type=None):
     with get_db_conn() as conn:
         c = conn.cursor()
         c.execute('''
-            INSERT INTO kb_configs (kb_name, description, dify_api_url, dify_api_key, dify_dataset_id)
-            VALUES (?, ?, ?, ?, ?)
-        ''', (name, description, dify_api_url, dify_api_key, dify_dataset_id))
+            INSERT INTO kb_configs (kb_name, description, dify_api_url, dify_api_key, dify_dataset_id, template_type)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (name, description, dify_api_url, dify_api_key, dify_dataset_id, template_type))
         return c.lastrowid
 
 
@@ -267,13 +272,20 @@ def delete_kb(kb_id):
 # KB permission operations
 # ==============================
 
-def set_kb_role_permission(role_id, kb_id, can_read=1, can_query=1):
+def set_kb_role_permission(role_id, kb_id, can_access=0, can_edit=0, can_manage=0):
+    """设置角色对知识库的权限。上级权限自动包含下级权限：manage → edit → access"""
+    # Enforce inheritance: manage → edit → access
+    if can_manage:
+        can_edit = 1
+        can_access = 1
+    elif can_edit:
+        can_access = 1
     with get_db_conn() as conn:
         c = conn.cursor()
         c.execute('''
-            INSERT OR REPLACE INTO role_kb_permissions (role_id, kb_id, can_read, can_query)
-            VALUES (?, ?, ?, ?)
-        ''', (role_id, kb_id, can_read, can_query))
+            INSERT OR REPLACE INTO role_kb_permissions (role_id, kb_id, can_access, can_edit, can_manage)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (role_id, kb_id, can_access, can_edit, can_manage))
 
 
 def remove_kb_role_permission(role_id, kb_id):
@@ -283,19 +295,19 @@ def remove_kb_role_permission(role_id, kb_id):
 
 
 def get_kb_permissions_for_roles(role_ids):
-    """Return dict of kb_id -> {can_read, can_query} for given role_ids"""
+    """Return dict of kb_id -> {can_access, can_edit, can_manage} for given role_ids"""
     if not role_ids:
         return {}
     with get_db_conn() as conn:
         c = conn.cursor()
         placeholders = ','.join(['?'] * len(role_ids))
         c.execute(f'''
-            SELECT kb_id, MAX(can_read) as can_read, MAX(can_query) as can_query
+            SELECT kb_id, MAX(can_access) as can_access, MAX(can_edit) as can_edit, MAX(can_manage) as can_manage
             FROM role_kb_permissions
             WHERE role_id IN ({placeholders})
             GROUP BY kb_id
         ''', role_ids)
-        return {row['kb_id']: {'can_read': row['can_read'], 'can_query': row['can_query']}
+        return {row['kb_id']: {'can_access': row['can_access'], 'can_edit': row['can_edit'], 'can_manage': row['can_manage']}
                 for row in c.fetchall()}
 
 

@@ -26,6 +26,85 @@ def admin_required(f):
     return decorated
 
 
+def _get_user_role_ids(user_id):
+    """Get role_ids for a user by name"""
+    from app.models import get_user_roles, get_db_conn
+    role_names = get_user_roles(user_id)
+    if not role_names:
+        return []
+    with get_db_conn() as conn:
+        c = conn.cursor()
+        c.execute('SELECT role_id FROM roles WHERE role_name IN (%s)' %
+                  ','.join(['?'] * len(role_names)), role_names)
+        return [row['role_id'] for row in c.fetchall()]
+
+
+def require_kb_manage(kb_id):
+    """Check if current user has can_manage permission on a KB"""
+    from app.models import get_kb_permissions_for_roles
+    user_id = session.get('user_id')
+    if not user_id:
+        return False
+    role_ids = _get_user_role_ids(user_id)
+    perms = get_kb_permissions_for_roles(role_ids)
+    perm = perms.get(kb_id, {})
+    return bool(perm.get('can_manage'))
+
+
+def require_kb_edit(kb_id):
+    """Check if current user has can_edit or can_manage permission on a KB"""
+    from app.models import get_kb_permissions_for_roles
+    user_id = session.get('user_id')
+    if not user_id:
+        return False
+    role_ids = _get_user_role_ids(user_id)
+    perms = get_kb_permissions_for_roles(role_ids)
+    perm = perms.get(kb_id, {})
+    return bool(perm.get('can_edit') or perm.get('can_manage'))
+
+
+def require_kb_manage_or_admin(kb_id):
+    """Allow if admin role OR has KB manage permission"""
+    if session.get('user_id') and require_admin(session['user_id']):
+        return True
+    return require_kb_manage(kb_id)
+
+
+def require_kb_edit_or_admin(kb_id):
+    """Allow if admin role OR has KB edit/manage permission"""
+    if session.get('user_id') and require_admin(session['user_id']):
+        return True
+    return require_kb_edit(kb_id)
+
+
+def kb_manage_required(f):
+    """Decorator to require KB manage permission (or admin role bypasses this)"""
+    from functools import wraps
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        kb_id = kwargs.get('kb_id')
+        if not session.get('user_id'):
+            return '请先登录', 403
+        if not require_kb_manage_or_admin(kb_id):
+            return '无权限管理该知识库', 403
+        return f(*args, **kwargs)
+    return decorated
+
+
+def kb_edit_required(f):
+    """Decorator to require KB edit/manage permission (or admin role bypasses this)"""
+    from functools import wraps
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        kb_id = kwargs.get('kb_id')
+        if not session.get('user_id'):
+            return '请先登录', 403
+        if not require_kb_edit_or_admin(kb_id):
+            return '无权限操作该知识库', 403
+        return f(*args, **kwargs)
+    return decorated
+
+
 # ==================== User Management ====================
 
 @bp.route('/admin/users')
@@ -60,9 +139,12 @@ def create_user():
     from app.models import get_db_conn
     with get_db_conn() as conn:
         c = conn.cursor()
-        for rid in role_ids:
-            c.execute('INSERT OR IGNORE INTO user_roles (user_id, role_id) VALUES (?, ?)',
-                      (user_id, int(rid)))
+        for rname in role_ids:
+            c.execute('SELECT role_id FROM roles WHERE role_name = ?', (rname,))
+            row = c.fetchone()
+            if row:
+                c.execute('INSERT OR IGNORE INTO user_roles (user_id, role_id) VALUES (?, ?)',
+                          (user_id, row['role_id']))
 
     flash(f'用户 {username} 创建成功', 'success')
     return redirect(url_for('admin.users'))
@@ -162,22 +244,81 @@ def delete_role(role_id):
 def get_role_permissions(role_id):
     from app.models import get_role_kb_permissions
     perms = get_role_kb_permissions(role_id)
-    return jsonify([{'kb_id': p['kb_id'], 'can_read': p['can_read'], 'can_query': p['can_query']} for p in perms])
+    return jsonify([{'kb_id': p['kb_id'], 'can_access': p['can_access'], 'can_edit': p['can_edit'], 'can_manage': p['can_manage']} for p in perms])
 
 
 # ==================== KB Management ====================
 
 @bp.route('/admin/kbs')
-@admin_required
 def kbs():
-    from app.models import get_all_kbs, get_all_roles, get_all_role_kb_permissions
+    from app.models import get_all_kbs, get_all_roles, get_all_role_kb_permissions, get_kb_permissions_for_roles, get_user_roles, get_db_conn
     from app.config import get_dify_defaults
+    # Permission check: must be admin OR have at least one KB with can_edit/can_manage
+    user_id = session.get('user_id')
+    if not user_id:
+        return redirect(url_for('auth.login'))
+    role_names = get_user_roles(user_id)
+    is_admin = 'admin' in role_names
+    editable_kb_ids = set()
+    accessible_kb_ids = set()
+    manageable_kb_ids = set()
+    if is_admin:
+        all_kbs = get_all_kbs()
+        accessible_kb_ids = {kb['kb_id'] for kb in all_kbs}
+        manageable_kb_ids = {kb['kb_id'] for kb in all_kbs}
+    elif role_names:
+        with get_db_conn() as conn:
+            c = conn.cursor()
+            c.execute('SELECT role_id FROM roles WHERE role_name IN (%s)' %
+                      ','.join(['?'] * len(role_names)), role_names)
+            role_ids = [row['role_id'] for row in c.fetchall()]
+        user_perms = get_kb_permissions_for_roles(role_ids)
+        editable_kb_ids = {
+            kb_id for kb_id, p in user_perms.items()
+            if p.get('can_edit') or p.get('can_manage')
+        }
+        manageable_kb_ids = {
+            kb_id for kb_id, p in user_perms.items()
+            if p.get('can_manage')
+        }
+        accessible_kb_ids = {
+            kb_id for kb_id, p in user_perms.items()
+            if p.get('can_access')
+        }
+        if not accessible_kb_ids:
+            return '无权限访问', 403
+
     kbs = get_all_kbs()
     roles = get_all_roles()
     perms = get_all_role_kb_permissions()
     dify_defaults = get_dify_defaults()
     edit_kb_id = request.args.get('edit', type=int)
-    return render_template('admin_kbs.html', kbs=kbs, roles=roles, perms=perms, dify_defaults=dify_defaults, edit_kb_id=edit_kb_id)
+    return render_template('admin_kbs.html', kbs=kbs, roles=roles, perms=perms,
+                            dify_defaults=dify_defaults, edit_kb_id=edit_kb_id,
+                            is_admin=is_admin,
+                            editable_kb_ids=editable_kb_ids,
+                            accessible_kb_ids=accessible_kb_ids,
+                            manageable_kb_ids=manageable_kb_ids)
+
+
+def _user_has_any_kb_manage():
+    """Check if current user has can_manage on any KB (or is admin)"""
+    if session.get('user_id') and require_admin(session['user_id']):
+        return True
+    from app.models import get_kb_permissions_for_roles, get_user_roles
+    user_id = session['user_id']
+    role_names = get_user_roles(user_id)
+    if not role_names:
+        return False
+    role_ids = []
+    from app.models import get_db_conn
+    with get_db_conn() as conn:
+        c = conn.cursor()
+        c.execute('SELECT role_id FROM roles WHERE role_name IN (%s)' %
+                  ','.join(['?'] * len(role_names)), role_names)
+        role_ids = [row['role_id'] for row in c.fetchall()]
+    perms = get_kb_permissions_for_roles(role_ids)
+    return any(p.get('can_manage') for p in perms.values())
 
 
 @bp.route('/admin/kbs/sync', methods=['POST'])
@@ -213,7 +354,7 @@ def create_kb():
 
 
 @bp.route('/admin/kbs/<int:kb_id>', methods=['GET', 'POST'])
-@admin_required
+@kb_manage_required
 def edit_kb(kb_id):
     from app.models import get_kb_by_id, update_kb
     kb = get_kb_by_id(kb_id)
@@ -242,7 +383,7 @@ def edit_kb(kb_id):
 
 
 @bp.route('/admin/kbs/<int:kb_id>/delete', methods=['POST'])
-@admin_required
+@kb_manage_required
 def delete_kb(kb_id):
     """删除知识库：先删本地记录，再删 Dify dataset"""
     from app.models import get_kb_by_id
@@ -429,20 +570,20 @@ def create_kb_from_template():
     from app.models import create_kb
     from app.config import get_dify_defaults
     cfg = get_dify_defaults()
-    kb_id = create_kb(kb_name, description, cfg['api_url'], cfg['api_key'], dataset_id)
+    kb_id = create_kb(kb_name, description, cfg['api_url'], cfg['api_key'], dataset_id, template_id)
 
-    # 5. 给 admin 角色加权限
+    # 5. 给 admin 角色加权限（can_manage=1 包含 edit 和 access）
     from app.models import get_role_by_name, set_kb_role_permission
     admin_role = get_role_by_name('admin')
     if admin_role:
-        set_kb_role_permission(admin_role['role_id'], kb_id, 1, 1)
+        set_kb_role_permission(admin_role['role_id'], kb_id, 1, 1, 1)
 
     flash(f'知识库「{kb_name}」创建成功（Dataset ID: {dataset_id[:20]}...）', 'success')
     return redirect(url_for('admin.kbs'))
 
 
 @bp.route('/admin/kbs/<int:kb_id>/documents/<path:doc_id>', methods=['DELETE'])
-@admin_required
+@kb_edit_required
 def delete_kb_document(kb_id, doc_id):
     """删除知识库中的文档"""
     from app.models import get_kb_by_id
@@ -459,7 +600,7 @@ def delete_kb_document(kb_id, doc_id):
 
 
 @bp.route('/admin/kbs/<int:kb_id>/upload', methods=['POST'])
-@admin_required
+@kb_edit_required
 def upload_kb_document(kb_id):
     """上传文件到知识库（使用默认配置）"""
     from app.models import get_kb_by_id
@@ -497,14 +638,32 @@ def upload_kb_document(kb_id):
 
 
 @bp.route('/admin/kbs/<int:kb_id>/documents', methods=['GET'])
-@admin_required
 def get_kb_documents(kb_id):
-    """获取知识库的文档列表"""
-    from app.models import get_kb_by_id
+    """获取知识库的文档列表（需要 can_access 权限）"""
+    from app.models import get_kb_by_id, get_kb_permissions_for_roles, get_user_roles, get_db_conn
+    user_id = session.get('user_id')
+    if not user_id:
+        return jsonify({'error': '请先登录'}), 401
+
     kb = get_kb_by_id(kb_id)
-    dataset_id = kb['dify_dataset_id'] if kb else None
-    if not kb or not dataset_id:
+    if not kb or not kb['dify_dataset_id']:
         return jsonify({'documents': [], 'total': 0})
+
+    # 权限检查：需要 can_access 或更高权限
+    role_names = get_user_roles(user_id)
+    is_admin = 'admin' in role_names
+    if not is_admin:
+        with get_db_conn() as conn:
+            c = conn.cursor()
+            c.execute('SELECT role_id FROM roles WHERE role_name IN (%s)' %
+                      ','.join(['?'] * len(role_names)), role_names)
+            role_ids = [row['role_id'] for row in c.fetchall()]
+        if not role_ids:
+            return jsonify({'error': '无权限', 'code': 'forbidden'}), 403
+        perms = get_kb_permissions_for_roles(role_ids)
+        perm = perms.get(kb_id, {})
+        if not perm.get('can_access'):
+            return jsonify({'error': '无权限访问该知识库', 'code': 'forbidden'}), 403
 
     from app.services.dify import build_dify_service
     dify = build_dify_service(kb)
@@ -521,10 +680,15 @@ def get_kb_documents(kb_id):
 @admin_required
 def update_permissions():
     action = request.form.get('action', 'set')
+    role_id = request.form.get('role_id', type=int)
+
+    # 禁止修改 admin 角色的权限
+    if role_id == 1:
+        flash('admin 角色拥有所有权限且不可被修改', 'error')
+        return redirect(url_for('admin.roles'))
 
     if action == 'batch':
         # Batch update: submit all KB permissions for a role at once
-        role_id = request.form.get('role_id', type=int)
         redirect_url = request.form.get('redirect', '/admin/roles')
 
         from app.models import get_all_kbs, set_kb_role_permission, remove_kb_role_permission
@@ -532,11 +696,12 @@ def update_permissions():
 
         for kb in kbs:
             kb_id = kb['kb_id']
-            can_read = 1 if request.form.get(f'kb_read_{kb_id}') else 0
-            can_query = 1 if request.form.get(f'kb_query_{kb_id}') else 0
+            can_access = 1 if request.form.get(f'kb_access_{kb_id}') else 0
+            can_edit = 1 if request.form.get(f'kb_edit_{kb_id}') else 0
+            can_manage = 1 if request.form.get(f'kb_manage_{kb_id}') else 0
 
-            if can_read or can_query:
-                set_kb_role_permission(role_id, kb_id, can_read, can_query)
+            if can_access or can_edit or can_manage:
+                set_kb_role_permission(role_id, kb_id, can_access, can_edit, can_manage)
             else:
                 remove_kb_role_permission(role_id, kb_id)
 
@@ -545,17 +710,17 @@ def update_permissions():
         return redirect(redirect_url)
 
     # Individual update (old single-permission mode)
-    role_id = request.form.get('role_id', type=int)
     kb_id = request.form.get('kb_id', type=int)
-    can_read = 1 if request.form.get('can_read') else 0
-    can_query = 1 if request.form.get('can_query') else 0
+    can_access = 1 if request.form.get('can_access') else 0
+    can_edit = 1 if request.form.get('can_edit') else 0
+    can_manage = 1 if request.form.get('can_manage') else 0
 
     from app.models import set_kb_role_permission, remove_kb_role_permission
     if action == 'remove':
         remove_kb_role_permission(role_id, kb_id)
         flash('权限已移除', 'success')
     else:
-        set_kb_role_permission(role_id, kb_id, can_read, can_query)
+        set_kb_role_permission(role_id, kb_id, can_access, can_edit, can_manage)
         flash('权限已更新', 'success')
 
     from flask import redirect
