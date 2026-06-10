@@ -92,12 +92,19 @@ def sync_kbs_from_dify():
                     ''', (kb_name, description, api_url, api_key, dataset_id))
                     kb_id = c.lastrowid
 
+                    # 直接用同一个连接写入权限，不开新连接（避免 SQLite 并发锁定）
                     admin_role = get_role_by_name('admin')
                     if admin_role:
-                        set_kb_role_permission(admin_role['role_id'], kb_id, can_access=1, can_edit=1, can_manage=1)
+                        c.execute('''
+                            INSERT OR REPLACE INTO role_kb_permissions (role_id, kb_id, can_access, can_edit, can_manage)
+                            VALUES (?, ?, 1, 1, 1)
+                        ''', (admin_role['role_id'], kb_id))
                     viewer_role = get_role_by_name('viewer')
                     if viewer_role:
-                        set_kb_role_permission(viewer_role['role_id'], kb_id, can_access=1, can_edit=1, can_manage=1)
+                        c.execute('''
+                            INSERT OR REPLACE INTO role_kb_permissions (role_id, kb_id, can_access, can_edit, can_manage)
+                            VALUES (?, ?, 1, 1, 1)
+                        ''', (viewer_role['role_id'], kb_id))
 
                     created += 1
                     logger.info(f"[Sync] Created KB: {kb_name} (Dataset ID: {dataset_id[:20]}...)")
