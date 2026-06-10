@@ -84,7 +84,22 @@ def sync_kbs_from_dify():
                         SET kb_name = ?, description = ?, dify_api_url = ?, dify_api_key = ?
                         WHERE dify_dataset_id = ?
                     ''', (kb_name, description, api_url, api_key, dataset_id))
-                    logger.info(f"[Sync] Updated KB: {kb_name}")
+                    kb_id = row['kb_id']
+                    logger.info(f"[Sync] Updated KB: {kb_name} (kb_id={kb_id})")
+
+                    # 确保 admin/viewer 有权限（INSERT OR REPLACE 保证幂等）
+                    admin_role = get_role_by_name('admin')
+                    if admin_role:
+                        c.execute('''
+                            INSERT OR REPLACE INTO role_kb_permissions (role_id, kb_id, can_access, can_edit, can_manage)
+                            VALUES (?, ?, 1, 1, 1)
+                        ''', (admin_role['role_id'], kb_id))
+                    viewer_role = get_role_by_name('viewer')
+                    if viewer_role:
+                        c.execute('''
+                            INSERT OR REPLACE INTO role_kb_permissions (role_id, kb_id, can_access, can_edit, can_manage)
+                            VALUES (?, ?, 1, 1, 1)
+                        ''', (viewer_role['role_id'], kb_id))
                 else:
                     c.execute('''
                         INSERT INTO kb_configs (kb_name, description, dify_api_url, dify_api_key, dify_dataset_id, is_active)
