@@ -47,10 +47,14 @@ def get_llm_config():
     cfg = load_config()
     llm = cfg.get('llm', {})
     provider = llm.get('provider', 'minimax')
+    base = {
+        'provider': provider,
+        'max_tokens': llm.get('max_tokens', 2048),
+    }
     if provider == 'qwen':
-        return {**get_qwen_config(), 'provider': 'qwen'}
+        return {**base, **get_qwen_config()}
     else:
-        return {**get_minimax_config(), 'provider': 'minimax'}
+        return {**base, **get_minimax_config()}
 
 
 def get_qwen_config():

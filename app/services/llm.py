@@ -69,6 +69,7 @@ class MiniMaxBackend:
         self.api_key = cfg['api_key']
         self.base_url = cfg['base_url']   # https://api.minimaxi.com/anthropic
         self.default_model = cfg['model']  # MiniMax-M2.7
+        self.max_tokens = cfg.get('max_tokens', 2048)
 
     def _post(self, payload, stream=False, timeout=120):
         url = f"{self.base_url.rstrip('/')}/v1/messages"
@@ -97,7 +98,7 @@ class MiniMaxBackend:
         try:
             resp = self._post({
                 'model': model,
-                'max_tokens': 2048,
+                'max_tokens': self.max_tokens,
                 'system': system,
                 'messages': [{'role': 'user', 'content': user_msg}]
             })
@@ -126,7 +127,7 @@ class MiniMaxBackend:
         try:
             resp = self._post({
                 'model': model,
-                'max_tokens': 2048,
+                'max_tokens': self.max_tokens,
                 'system': system,
                 'messages': [{'role': 'user', 'content': user_msg}],
                 'stream': True,
@@ -184,6 +185,7 @@ class QwenBackend:
     def __init__(self, cfg):
         self.base_url = cfg['base_url']    # http://10.40.65.220:8080/qwen3_5
         self.default_model = cfg['model']  # Qwen3.5-27B-W8A8
+        self.max_tokens = cfg.get('max_tokens', 2048)
 
     def _post(self, payload, stream=False, timeout=300):
         url = f"{self.base_url.rstrip('/')}/v1/chat/completions"
@@ -207,7 +209,7 @@ class QwenBackend:
         try:
             resp = self._post({
                 'model': model,
-                'max_tokens': 2048,
+                'max_tokens': self.max_tokens,
                 'messages': [
                     {'role': 'system', 'content': system},
                     {'role': 'user', 'content': user_msg}
@@ -241,7 +243,7 @@ class QwenBackend:
         try:
             resp = self._post({
                 'model': model,
-                'max_tokens': 2048,
+                'max_tokens': self.max_tokens,
                 'messages': [
                     {'role': 'system', 'content': system},
                     {'role': 'user', 'content': user_msg}
