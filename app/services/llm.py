@@ -213,7 +213,12 @@ class QwenBackend:
                 'messages': [
                     {'role': 'system', 'content': system},
                     {'role': 'user', 'content': user_msg}
-                ]
+                ],
+                'extra_body': {
+                    'chat_template_kwargs': {
+                        'enable_thinking': False
+                    }
+                }
             })
             if resp.status_code != 200:
                 logger.error(f"[Qwen] API error {resp.status_code}: {resp.text[:300]}")
@@ -249,6 +254,11 @@ class QwenBackend:
                     {'role': 'user', 'content': user_msg}
                 ],
                 'stream': True,
+                'extra_body': {
+                    'chat_template_kwargs': {
+                        'enable_thinking': False
+                    }
+                },
             }, stream=True)
 
             if resp.status_code != 200:

@@ -10,7 +10,7 @@ server:
 # provider: 当前支持 minimax / qwen，切换只需改这一行
 llm:
   provider: "minimax"
-  max_tokens: 102400   # 生成回答的最大 token 数
+  max_tokens: 2048   # 生成回答的最大 token 数
 
 # MiniMax LLM 配置（provider=minimax 时生效）
 minimax:
