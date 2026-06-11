@@ -418,6 +418,43 @@ def create_kb_from_template():
         flash('知识库名称不能为空', 'error')
         return redirect(url_for('admin.kbs'))
 
+    # 解析用户选择的模型（格式："provider_name/model_name"）
+    embedding_model_str = request.form.get('embedding_model', '').strip()
+    reranking_model_str = request.form.get('reranking_model', '').strip()
+
+    def parse_model_str(s):
+        """解析 "provider/model" 或 "provider/sub/path/model" 格式
+        格式: langgenius/provider_sub/path/model_name
+        分界点: 从左到右第 3 个 '/' — 之前是 provider，之后是 model
+        例如:
+          langgenius/siliconflow/siliconflow/Qwen/Qwen3-Reranker-4B
+          langgenius/siliconflow/siliconflow/BAAI/bge-m3
+          langgenius/openai_api_compatible/openai_api_compatible/Qwen3-Embedding-4B
+        """
+        if not s or s == 'auto':
+            return None
+        # 找第3个 '/' 的位置
+        slash_count = 0
+        split_pos = -1
+        for i, ch in enumerate(s):
+            if ch == '/':
+                slash_count += 1
+                if slash_count == 3:
+                    split_pos = i
+                    break
+        if split_pos == -1:
+            # 不足 3 个 /，按旧逻辑从右端 split
+            parts = s.split('/')
+            if len(parts) < 2:
+                return (s, 'langgenius/siliconflow/siliconflow')
+            return (parts[-1], '/'.join(parts[:-1]))
+        provider = s[:split_pos]   # e.g. "langgenius/siliconflow/siliconflow"
+        model = s[split_pos + 1:]  # e.g. "Qwen/Qwen3-Reranker-4B"
+        return (model, provider)
+
+    user_embedding = parse_model_str(embedding_model_str)  # (model, provider) or None
+    user_reranking = parse_model_str(reranking_model_str)     # (model, provider) or None
+
     # 模板参数
     TEMPLATES = {
         'text_plain': {
@@ -478,7 +515,15 @@ def create_kb_from_template():
         flash(f'未知模板: {template_id}', 'error')
         return redirect(url_for('admin.kbs'))
 
-    tmpl = TEMPLATES[template_id]
+    tmpl = dict(TEMPLATES[template_id])  # 深拷贝，避免污染模板
+
+    # 用用户选择的模型覆盖默认值
+    if user_embedding:
+        tmpl['embedding'] = user_embedding
+        logger.info(f"[CreateKB] user selected embedding: {user_embedding}")
+    if user_reranking:
+        tmpl['reranking'] = user_reranking
+        logger.info(f"[CreateKB] user selected reranking: {user_reranking}")
 
     # 1. 在 Dify 创建空 dataset（name + description）
     from app.services.dify import create_dataset
@@ -722,3 +767,19 @@ def update_permissions():
 
     from flask import redirect
     return redirect(url_for('admin.roles'))
+
+
+# ==================== Model Listing ====================
+
+@bp.route('/admin/kbs/models/<model_type>')
+@admin_required
+def get_model_list(model_type):
+    """返回 Dify 可用的 embedding/rerank 模型列表 JSON"""
+    if model_type not in ('text-embedding', 'rerank'):
+        return jsonify({'error': 'invalid model type'}), 400
+
+    from app.services.dify import get_available_models
+    result = get_available_models(model_type)
+    if 'error' in result:
+        return jsonify({'error': result['error']}), 500
+    return jsonify({'models': result['models']})

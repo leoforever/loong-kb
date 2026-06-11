@@ -456,3 +456,66 @@ def build_dify_service(kb_config):
     else:
         dataset_id = kb_config['dify_dataset_id']
     return DifyKBService(dataset_id=dataset_id)
+
+
+# ==================== Model Listing ====================
+
+def get_available_models(model_type):
+    """
+    获取 Dify 可用的指定类型模型列表。
+    Dify API: GET /workspaces/current/models/model-types/{model_type}
+    model_type: 'text-embedding' | 'rerank'
+    返回 {'models': [{'provider': str, 'model': str, 'label': str}], 'error': str}
+    """
+    import requests
+    from app.config import get_dify_defaults
+    cfg = get_dify_defaults()
+    api_key = cfg['api_key']
+    base = cfg['api_url'].rstrip('/')
+    # API 路径需要 /v1 前缀，不要剥离
+    # base = http://10.40.65.209/v1 → 直接使用，URL变成 /v1/workspaces/current/...
+
+    try:
+        url = f'{base}/workspaces/current/models/model-types/{model_type}'
+        logger.info(f"[Dify] get_available_models | url={url} | type={model_type}")
+        resp = requests.get(
+            url,
+            headers={'Authorization': f'Bearer {api_key}'},
+            timeout=30,
+        )
+        if resp.status_code != 200:
+            return {'models': [], 'error': f'HTTP {resp.status_code}: {resp.text[:200]}'}
+
+        data = resp.json()
+        result = []
+        for provider_item in data.get('data', []):
+            provider = provider_item.get('provider', '')
+            for model_item in provider_item.get('models', []):
+                model_name = model_item.get('model', '')
+                label = model_item.get('label', {})
+                label_str = label.get('zh_Hans') or label.get('en_US') or model_name
+                result.append({
+                    'provider': provider,
+                    'model': model_name,
+                    'label': label_str,
+                })
+        return {'models': result}
+    except Exception as e:
+        logger.error(f"[Dify] get_available_models failed: {e}")
+        return {'models': [], 'error': str(e)}
+
+
+def list_embedding_models():
+    """返回 [{'provider': str, 'model': str, 'label': str}, ...]"""
+    result = get_available_models('text-embedding')
+    if 'error' in result:
+        logger.warn(f"[Dify] list_embedding_models error: {result['error']}")
+    return result.get('models', [])
+
+
+def list_rerank_models():
+    """返回 [{'provider': str, 'model': str, 'label': str}, ...]"""
+    result = get_available_models('rerank')
+    if 'error' in result:
+        logger.warn(f"[Dify] list_rerank_models error: {result['error']}")
+    return result.get('models', [])

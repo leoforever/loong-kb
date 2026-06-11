@@ -133,13 +133,13 @@
 
 <!-- 添加知识库弹窗 -->
 <div id="createKBModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:200; justify-content:center; align-items:center;">
-    <div style="background:white; border-radius:12px; padding:32px; width:560px; max-width:90%;">
+    <div style="background:white; border-radius:12px; padding:32px; width:580px; max-width:90%; max-height:90vh; overflow-y:auto;">
         <h3 style="margin-bottom:20px; font-size:18px;">新建知识库</h3>
         <form method="post" action="/admin/kbs/from-template" onsubmit="return validateCreateKB()">
             <div class="form-group"><label>知识库名称</label><input name="kb_name" required placeholder="如：龙芯产品手册v2.0" style="width:100%;"></div>
             <div class="form-group"><label>描述（可选）</label><input name="description" placeholder="简要描述" style="width:100%;"></div>
             <div class="form-group"><label>选择模板</label></div>
-            <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:16px;">
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:12px;">
                 <label class="tmpl-card" onclick="selectTmpl('text_plain')">
                     <input type="radio" name="template_id" value="text_plain" style="display:none;">
                     <div class="tmpl-inner">
@@ -166,7 +166,30 @@
                 </label>
             </div>
             <div id="tmpl-error" style="color:#c5221f;font-size:13px;margin-bottom:8px;display:none;">请选择一个模板</div>
-            <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:16px;">
+
+            <!-- 模型选择区域 -->
+            <div style="margin-top:16px; padding:12px; background:#f8f9fa; border-radius:8px; border:1px solid #e9ecef;">
+                <div style="font-size:13px; font-weight:500; color:#495057; margin-bottom:10px;">模型配置（可选）</div>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+                    <div class="form-group" style="margin-bottom:0;">
+                        <label style="font-size:12px; color:#666;">嵌入模型（Embedding）</label>
+                        <select id="embedding-model-select" name="embedding_model" style="width:100%; padding:5px 8px; border:1px solid #ddd; border-radius:6px; font-size:13px;">
+                            <option value="auto">加载中…</option>
+                        </select>
+                        <div id="embedding-model-loading" style="font-size:11px; color:#999; margin-top:2px;"></div>
+                    </div>
+                    <div class="form-group" style="margin-bottom:0;">
+                        <label style="font-size:12px; color:#666;">Rerank 模型（可选）</label>
+                        <select id="reranking-model-select" name="reranking_model" style="width:100%; padding:5px 8px; border:1px solid #ddd; border-radius:6px; font-size:13px;">
+                            <option value="auto">加载中…</option>
+                        </select>
+                        <div id="reranking-model-loading" style="font-size:11px; color:#999; margin-top:2px;"></div>
+                    </div>
+                </div>
+                <div style="font-size:11px; color:#aaa; margin-top:6px;">留空则使用模板默认值。模型列表从 Dify API 实时获取。</div>
+            </div>
+
+            <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:20px;">
                 <button type="button" class="btn btn-secondary" onclick="hideModal('createKBModal')">取消</button>
                 <button type="submit" class="btn btn-primary">创建知识库</button>
             </div>
@@ -192,6 +215,8 @@ function showCreateKB() {
     // 清除错误提示
     var err = document.getElementById('tmpl-error');
     if (err) err.style.display = 'none';
+    // 加载模型列表
+    loadModelLists();
 }
 function validateCreateKB() {
     var selected = document.querySelector('input[name="template_id"]:checked');
@@ -232,6 +257,58 @@ function selectTmpl(id) {
     document.querySelectorAll('.tmpl-card').forEach(c => c.classList.remove('selected'));
     document.querySelector(`input[value="${id}"]`).checked = true;
     document.querySelector(`input[value="${id}"]`).closest('.tmpl-card').classList.add('selected');
+}
+
+function loadModelLists() {
+    // 加载 embedding 模型
+    fetch('/admin/kbs/models/text-embedding')
+        .then(r => r.json())
+        .then(data => {
+            const sel = document.getElementById('embedding-model-select');
+            const loading = document.getElementById('embedding-model-loading');
+            if (data.error) {
+                sel.innerHTML = '<option value="">加载失败</option>';
+                loading.textContent = data.error;
+            } else {
+                sel.innerHTML = '<option value="">使用默认值</option>';
+                data.models.forEach(m => {
+                    const opt = document.createElement('option');
+                    opt.value = m.provider + '/' + m.model;
+                    opt.textContent = m.label + ' (' + m.model + ')';
+                    sel.appendChild(opt);
+                });
+                loading.textContent = data.models.length + ' 个模型可用';
+            }
+        })
+        .catch(e => {
+            document.getElementById('embedding-model-select').innerHTML = '<option value="">加载失败</option>';
+            document.getElementById('embedding-model-loading').textContent = e.message;
+        });
+
+    // 加载 reranking 模型
+    fetch('/admin/kbs/models/rerank')
+        .then(r => r.json())
+        .then(data => {
+            const sel = document.getElementById('reranking-model-select');
+            const loading = document.getElementById('reranking-model-loading');
+            if (data.error) {
+                sel.innerHTML = '<option value="">加载失败</option>';
+                loading.textContent = data.error;
+            } else {
+                sel.innerHTML = '<option value="">不使用 Rerank</option>';
+                data.models.forEach(m => {
+                    const opt = document.createElement('option');
+                    opt.value = m.provider + '/' + m.model;
+                    opt.textContent = m.label + ' (' + m.model + ')';
+                    sel.appendChild(opt);
+                });
+                loading.textContent = data.models.length + ' 个模型可用';
+            }
+        })
+        .catch(e => {
+            document.getElementById('reranking-model-select').innerHTML = '<option value="">加载失败</option>';
+            document.getElementById('reranking-model-loading').textContent = e.message;
+        });
 }
 function deleteKB(kbId, kbName) {
     if (!confirm(`确认删除知识库「${kbName}」？\n\n删除后，Dify 上的知识库和所有文档也将同步删除。`)) return;
