@@ -458,7 +458,7 @@ function renderDocs(kbId, docs, statusLabel, statusClass) {
             <td style="padding:3px 8px;border-bottom:1px solid #eee;"></td>
             <td style="padding:3px 8px;border-bottom:1px solid #eee;text-align:left;color:#999;font-size:12px;">${doc.word_count ? doc.word_count.toLocaleString() + ' 字' : ''}</td>
             <td style="padding:3px 4px;border-bottom:1px solid #eee;" class="actions-cell">
-                ${isEditable ? '<button class="del-btn" data-doc-id="${doc.id}" onclick="deleteDoc(' + kbId + ',this.getAttribute(\'data-doc-id\'))" title="删除">删除</button>' : ''}
+                <span class="del-btn-wrapper" data-doc-id="${doc.id}"></span>
             </td>
         </tr>`;
     });
@@ -468,7 +468,21 @@ function renderDocs(kbId, docs, statusLabel, statusClass) {
     const newRows = Array.from(tempDiv.firstChild.rows);
     let insertBeforeNode = row.nextSibling;
     for (let i = 0; i < newRows.length; i++) {
-        row.parentNode.insertBefore(newRows[i], insertBeforeNode);
+        const insertedRow = row.parentNode.insertBefore(newRows[i], insertBeforeNode);
+        // Dynamically create delete button via DOM API (bypass innerHTML template issues)
+        if (isEditable) {
+            const wrapper = insertedRow.querySelector('.del-btn-wrapper');
+            const docId = wrapper && wrapper.getAttribute('data-doc-id');
+            if (wrapper && docId) {
+                const btn = document.createElement('button');
+                btn.className = 'del-btn';
+                btn.setAttribute('data-doc-id', docId);
+                btn.setAttribute('title', '删除');
+                btn.textContent = '删除';
+                btn.onclick = function() { deleteDoc(kbId, docId); };
+                wrapper.appendChild(btn);
+            }
+        }
     }
 }
 
