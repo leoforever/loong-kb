@@ -103,6 +103,8 @@ async function sendQuery() {
 
         if (data.error) {
             messages.innerHTML += `<div class="message assistant"><div class="role">助手</div><div class="content" style="color:#c00;">❌ ${escapeHtml(data.error)}</div></div>`;
+        } else if (!data.answer) {
+            messages.innerHTML += `<div class="message assistant"><div class="role">助手</div><div class="content">抱歉，未在任何知识库中找到相关内容。</div></div>`;
         } else {
             messages.innerHTML += `<div class="message assistant"><div class="role">助手</div><div class="content">${data.answer.replace(/\n/g, '<br>')}</div></div>`;
         }
