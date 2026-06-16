@@ -124,15 +124,6 @@ def init_db():
         c.execute('CREATE INDEX IF NOT EXISTS idx_role_kb_role ON role_kb_permissions(role_id)')
         c.execute('CREATE INDEX IF NOT EXISTS idx_query_log_user ON query_log(user_id)')
 
-        # Insert default roles if not exist
-        default_roles = [
-            ('admin', '管理员，可管理所有知识库'),
-            ('developer', '开发人员，可访问开发相关知识库'),
-            ('viewer', '普通用户，只读访问知识库'),
-        ]
-        for name, desc in default_roles:
-            c.execute('INSERT OR IGNORE INTO roles (role_name, description) VALUES (?, ?)', (name, desc))
-
     logger.info(f"Database initialized: {DB_PATH}")
 
 

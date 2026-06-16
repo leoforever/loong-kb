@@ -92,6 +92,15 @@ def setup():
         viewer_role = get_role_by_name('viewer')
         print(f"✓ 创建 viewer 角色")
 
+    # Create developer role if not exists
+    developer_role = get_role_by_name('developer')
+    if not developer_role:
+        with get_db_conn() as conn:
+            c = conn.cursor()
+            c.execute("INSERT INTO roles (role_name, description) VALUES ('developer', '开发人员，可访问开发相关知识库')")
+        developer_role = get_role_by_name('developer')
+        print(f"✓ 创建 developer 角色")
+
     # Add Dify KB config — 使用 config.yaml 中的默认值
     try:
         kb_id = create_kb(
