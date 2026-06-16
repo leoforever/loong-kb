@@ -198,7 +198,11 @@ async function sendQuery() {
                     }
                     if (data.token !== undefined) {
                         contentDiv.appendChild(document.createTextNode(data.token));
-                        messages.scrollTop = messages.scrollHeight;
+                        messages.scrollTop = messages.scrollTop;
+                    }
+                    if (data.answer) {
+                        contentDiv.innerHTML = '';
+                        contentDiv.textContent = data.answer;
                     }
                     if (data.done) { sources = data.sources || []; }
                 } catch {}

@@ -156,7 +156,11 @@ def ask():
 
     if not all_chunks:
         logger.warn(f"[QA] ask | no chunks retrieved for query='{query[:80]}'")
-        return jsonify({'answer': '抱歉，未在任何知识库中找到相关内容。', 'sources': [], 'chunks': []})
+        def _generate_empty():
+            yield f"data: {json.dumps({'answer': '抱歉，未在任何知识库中找到相关内容。', 'sources': [], 'chunks': []})}\n\n"
+            yield f"data: {json.dumps({'done': True})}\n\n"
+        return Response(_generate_empty(), mimetype='text/event-stream',
+                        headers={'X-Accel-Buffering': 'no', 'Cache-Control': 'no-cache'})
 
     all_chunks.sort(key=lambda x: x.get('score', 0), reverse=True)
     top_chunks = all_chunks[:8]
