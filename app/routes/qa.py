@@ -254,7 +254,7 @@ def chat(kb_id):
 
     if request.method == 'POST':
         query = request.json.get('query', '').strip()
-        provider = request.json.get('provider')
+        provider = request.json.get('provider') or None
         if not query:
             return jsonify({'error': '问题不能为空'}), 400
 
