@@ -299,6 +299,39 @@ def kbs():
     perms = get_all_role_kb_permissions()
     dify_defaults = get_dify_defaults()
     edit_kb_id = request.args.get('edit', type=int)
+
+    # 从 list_datasets() 一次性获取所有 Dify KB 的 embedding/reranking 模型信息
+    kb_model_info = {}  # dataset_id -> {'embedding_model': str, 'reranking_model': str}
+    from app.services.dify import list_datasets
+    try:
+        result = list_datasets()
+        for ds in result.get('data', []):
+            ds_id = ds.get('id', '')
+            emb = ds.get('embedding_model', '')
+            rer = ds.get('retrieval_model_dict', {}).get('reranking_model', {}).get('reranking_model_name', '')
+            kb_model_info[ds_id] = {'embedding_model': emb, 'reranking_model': rer}
+    except Exception:
+        pass
+
+    # 将模型信息挂到每个 kb 对象上
+    emb_cfg = get_embedding_config()
+    local_emb_model = None
+    if emb_cfg.get('provider') == 'siliconflow':
+        local_emb_model = emb_cfg.get('siliconflow', {}).get('model')
+    elif emb_cfg.get('provider') == 'ollama':
+        local_emb_model = emb_cfg.get('ollama', {}).get('model')
+    elif emb_cfg.get('provider') == 'openai':
+        local_emb_model = emb_cfg.get('openai', {}).get('model')
+
+    for kb in kbs:
+        info = kb_model_info.get(kb.get('dify_dataset_id') or '', {})
+        kb['_embedding_model'] = info.get('embedding_model') or None
+        kb['_reranking_model'] = info.get('reranking_model') or None
+        # 问答库：用本地嵌入模型
+        if kb.get('template_type') == 'qa' and local_emb_model:
+            kb['_embedding_model'] = local_emb_model
+            kb['_reranking_model'] = None
+
     return render_template('admin_kbs.html', kbs=kbs, roles=roles, perms=perms,
                             dify_defaults=dify_defaults, edit_kb_id=edit_kb_id,
                             is_admin=is_admin,
@@ -816,7 +849,7 @@ def get_model_list(model_type):
     if 'error' in result:
         return jsonify({'error': result['error']}), 500
 
-    # 尝试从已有知识库获取默认模型名
+    # 从已有知识库获取 embedding 和 rerank 默认值（Dify 知识库）
     default_model = None
     default_rerank = None
     try:

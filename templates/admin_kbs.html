@@ -58,7 +58,7 @@
 <div class="card">
     <h3 class="section-title">知识库列表</h3>
     <table style="table-layout:fixed; width:100%;">
-        <thead><tr><th style="width:5%">ID</th><th style="width:15%">名称</th><th style="width:20%">描述</th><th style="width:12%">模板</th><th style="width:13%">Dify Dataset ID</th><th style="width:8%">状态</th><th style="width:18%">操作</th><th style="width:9%">文件</th></tr></thead>
+        <thead><tr><th style="width:5%">ID</th><th style="width:15%">名称</th><th style="width:18%">描述</th><th style="width:10%">模板</th><th style="width:14%">嵌入模型</th><th style="width:12%">重排序模型</th><th style="width:6%">状态</th><th style="width:16%">操作</th><th style="width:4%">文件</th></tr></thead>
         <tbody>
         {% for kb in kbs %}
         {% if kb.kb_id in accessible_kb_ids or is_admin %}
@@ -74,7 +74,12 @@
                 {% elif kb.template_type %}<span style="font-size:12px;color:#888;">{{ kb.template_type }}</span>
                 {% else %}<span style="font-size:12px;color:#999;">-</span>{% endif %}
             </td>
-            <td><code style="font-size:12px; background:#f5f5f5; padding:2px 6px; border-radius:4px;">{{ kb.dify_dataset_id }}</code></td>
+            <td style="font-size:12px; color:#555; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="{{ kb._embedding_model or '' }}">
+                {% if kb._embedding_model %}{{ kb._embedding_model }}{% else %}<span style="color:#aaa;">-</span>{% endif %}
+            </td>
+            <td style="font-size:12px; color:#555; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="{{ kb._reranking_model or '' }}">
+                {% if kb._reranking_model %}{{ kb._reranking_model }}{% else %}<span style="color:#aaa;">-</span>{% endif %}
+            </td>
             <td>
                 {% if kb.is_active %}
                 <span class="tag" style="background:#efe; color:#060;">已启用</span>
@@ -113,17 +118,20 @@
             <td style="padding:3px 8px;border-bottom:1px solid #eee;"></td>
             <td style="padding:3px 8px;border-bottom:1px solid #eee;text-align:left;font-size:14px;" id="doc-meta-cell-{{ kb.kb_id }}"></td>
             <td style="padding:3px 8px;border-bottom:1px solid #eee;"></td>
+            <td style="padding:3px 8px;border-bottom:1px solid #eee;"></td>
+            <td style="padding:3px 8px;border-bottom:1px solid #eee;"></td>
         </tr>
         {% if kb.kb_id in editable_kb_ids or is_admin %}
         <tr class="doc-upload-row" id="upload-row-{{ kb.kb_id }}">
             <td style="padding:3px 8px;border-bottom:1px solid #ddd;"></td>
-            <td style="padding:3px 8px;border-bottom:1px solid #ddd;" colspan="5">
+            <td style="padding:3px 8px;border-bottom:1px solid #ddd;" colspan="7">
                 <form class="doc-upload-form" id="upload-form-{{ kb.kb_id }}" enctype="multipart/form-data">
                     <input type="file" name="file" accept=".txt,.pdf,.docx,.md,.doc" required>
                     <button type="button" onclick="uploadDoc({{ kb.kb_id }})">上传到知识库</button>
                     <span class="err-msg" id="upload-err-{{ kb.kb_id }}"></span>
                 </form>
             </td>
+            <td style="padding:3px 8px;border-bottom:1px solid #ddd;"></td>
             <td style="padding:3px 8px;border-bottom:1px solid #ddd;"></td>
         </tr>
         {% endif %}
@@ -707,6 +715,8 @@ function renderDocs(kbId, docs, statusLabel, statusClass) {
             <td style="padding:3px 4px;border-bottom:1px solid #eee;" class="actions-cell">
                 <span class="del-btn-wrapper" data-doc-id="${doc.id}"></span>
             </td>
+            <td style="padding:3px 8px;border-bottom:1px solid #eee;"></td>
+            <td style="padding:3px 8px;border-bottom:1px solid #eee;"></td>
         </tr>`;
     });
 
