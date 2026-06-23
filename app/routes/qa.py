@@ -63,11 +63,20 @@ def index():
     accessible_kbs = get_user_accessible_kbs(user_id)
     messages = _conversation_cache.get(user_id, [])
     from app.config import get_llm_config
+    cfg = get_llm_config()
+    default_provider = cfg['provider']
+    # (select_value, display_name) 元组列表
+    model_options = [
+        ('minimax', 'MiniMax-M2.7'),
+        ('qwen', 'Qwen3.5-27B-W8A8'),
+    ]
     return render_template('qa_index.html',
                            accessible_kbs=accessible_kbs,
                            username=session.get('username', ''),
                            chat_history=messages,
-                           llm_config=get_llm_config())
+                           llm_default=cfg['model'],
+                           llm_default_provider=default_provider,
+                           llm_model_options=model_options)
 
 
 @bp.route('/qa/ask', methods=['POST'])
@@ -279,7 +288,16 @@ def chat(kb_id):
         save_query_log(session['user_id'], kb_id, query, answer, 0)
         return jsonify({'answer': answer, 'chunks': chunks})
 
-    return render_template('qa_chat.html', kb=kb, can_access=bool(perm.get('can_access')))
+    from app.config import get_llm_config
+    cfg = get_llm_config()
+    default_provider = cfg['provider']
+    model_options = [
+        ('minimax', 'MiniMax-M2.7'),
+        ('qwen', 'Qwen3.5-27B-W8A8'),
+    ]
+    return render_template('qa_chat.html', kb=kb, can_access=bool(perm.get('can_access')),
+                           llm_default_provider=default_provider,
+                           llm_model_options=model_options)
 
 
 @bp.route('/qa/<int:kb_id>/history')

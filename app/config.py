@@ -43,18 +43,21 @@ def get_minimax_config():
     }
 
 def get_llm_config():
-    """返回当前选定的 LLM 提供者配置（minimax 或 qwen）"""
+    """返回当前选定的 LLM 提供者配置
+    llm.provider 指向 config 中的 provider 配置名，配置节点里有 type 字段决定 backend 类型
+    """
     cfg = load_config()
     llm = cfg.get('llm', {})
-    provider = llm.get('provider', 'minimax')
+    provider_name = llm.get('provider', 'minimax')   # e.g. 'qwen' 或 'minimax'
     base = {
-        'provider': provider,
+        'provider': provider_name,
         'max_tokens': llm.get('max_tokens', 2048),
     }
-    if provider == 'qwen':
-        return {**base, **get_qwen_config()}
-    else:
-        return {**base, **get_minimax_config()}
+    # 用 provider 名直接查 config 里的对应节点
+    provider_cfg = cfg.get(provider_name, {})
+    backend_type = provider_cfg.get('type', 'minimax')   # type 字段声明 backend 类型
+    base['backend_type'] = backend_type
+    return {**base, **provider_cfg}
 
 
 def get_qwen_config():
