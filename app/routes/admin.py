@@ -412,6 +412,29 @@ def edit_kb(kb_id):
             cfg['api_key'],
             kb['dify_dataset_id'],
         )
+        # 更新嵌入/重排序模型
+        _kb = get_kb_by_id(kb_id)
+        if _kb and dict(_kb).get('template_type') != 'qa':
+            from app.services.dify import patch_dataset
+            emb = request.form.get('embedding_model', '').strip()
+            rer = request.form.get('reranking_model', '').strip()
+            if emb or rer:
+                def parse_model_str(s):
+                    if not s:
+                        return None
+                    # provider 是前3段，model 是剩余部分（model 名可能含 /）
+                    # value 格式: provider/model = langgenius/siliconflow/siliconflow/BAAI/bge-m3
+                    parts = s.split('/', 3)
+                    if len(parts) < 4:
+                        return (s, 'langgenius/siliconflow/siliconflow')
+                    return (parts[3], '/'.join(parts[:3]))
+                emb_cfg = parse_model_str(emb) if emb else None
+                rer_cfg = parse_model_str(rer) if rer else None
+                patch_dataset(
+                    kb['dify_dataset_id'],
+                    embedding_model=emb_cfg,
+                    reranking_model=rer_cfg,
+                )
         flash('知识库已更新', 'success')
         return redirect(url_for('admin.kbs'))
 
@@ -1031,6 +1054,96 @@ def qa_index_status(kb_id):
     from app.services.local_qa import is_indexed
     indexed = is_indexed(kb_id)
     return jsonify({'indexed': indexed})
+
+
+# ==================== KB Model Config (Dify only) ====================
+
+@bp.route('/admin/kbs/<int:kb_id>/models', methods=['GET'])
+def get_kb_model_config(kb_id):
+    """返回当前 KB 的 embedding/reranking 模型配置 + Dify 可选模型列表"""
+    from app.models import get_kb_by_id
+    _kb = get_kb_by_id(kb_id)
+    if not _kb:
+        return jsonify({'error': '知识库不存在'}), 404
+    kb = dict(_kb)  # sqlite3.Row 没有 .get()，转成 dict
+    if kb.get('template_type') == 'qa':
+        return jsonify({'error': '问答知识库不支持此功能'}), 400
+
+    dataset_id = kb.get('dify_dataset_id')
+    if not dataset_id:
+        return jsonify({'error': '非 Dify 知识库'}), 400
+
+    # 获取 Dify dataset 当前配置
+    from app.services.dify import DifyKBService
+    try:
+        dify = DifyKBService(dataset_id=dataset_id)
+        info = dify.get_dataset_info()
+    except Exception as e:
+        return jsonify({'error': f'连接 Dify 失败: {e}'}), 500
+
+    current_embedding = info.get('embedding_model', '')
+    retrieval_dict = info.get('retrieval_model_dict', {})
+    current_reranking = retrieval_dict.get('reranking_model', {}).get('reranking_model_name', '')
+    reranking_provider = retrieval_dict.get('reranking_model', {}).get('reranking_provider_name', '')
+    # embedding 没有顶层 provider，从 weights 里取
+    emb_provider = retrieval_dict.get('weights', {}).get('vector_setting', {}).get('embedding_provider_name', '')
+
+    # 获取 Dify 可用模型列表
+    from app.services.dify import get_available_models
+    emb_result = get_available_models('text-embedding')
+    rerank_result = get_available_models('rerank')
+
+    return jsonify({
+        'current_embedding': current_embedding,
+        'current_embedding_provider': emb_provider,
+        'current_reranking': current_reranking,
+        'current_reranking_provider': reranking_provider,
+        'embedding_models': emb_result.get('models', []),
+        'reranking_models': rerank_result.get('models', []),
+    })
+
+
+@bp.route('/admin/kbs/<int:kb_id>/models', methods=['POST'])
+@kb_edit_required
+def update_kb_model_config(kb_id):
+    """更新 KB 的 embedding / reranking 模型（仅 Dify 知识库）"""
+    from app.models import get_kb_by_id
+    _kb = get_kb_by_id(kb_id)
+    if not _kb:
+        return jsonify({'error': '知识库不存在'}), 404
+    kb = dict(_kb)  # sqlite3.Row 没有 .get()，转成 dict
+    if kb.get('template_type') == 'qa':
+        return jsonify({'error': '问答知识库不支持此功能'}), 400
+
+    dataset_id = kb.get('dify_dataset_id')
+    if not dataset_id:
+        return jsonify({'error': '非 Dify 知识库'}), 400
+
+    data = request.get_json() or {}
+    embedding_model = data.get('embedding_model', '').strip()
+    reranking_model = data.get('reranking_model', '').strip()
+
+    def parse_model_str(s):
+        """解析 \"provider/model\" 格式，返回 (model, provider)"""
+        if not s:
+            return None
+        parts = s.split('/')
+        if len(parts) < 2:
+            return (s, 'langgenius/siliconflow/siliconflow')
+        return (parts[-1], '/'.join(parts[:-1]))
+
+    emb_cfg = parse_model_str(embedding_model) if embedding_model else None
+    rer_cfg = parse_model_str(reranking_model) if reranking_model else None
+
+    from app.services.dify import patch_dataset
+    patch_result = patch_dataset(
+        dataset_id,
+        embedding_model=emb_cfg[0] if emb_cfg else None,
+        reranking_model=rer_cfg[0] if rer_cfg else None,
+    )
+    if 'error' in patch_result:
+        return jsonify({'error': patch_result['error']}), 500
+    return jsonify({'ok': True})
 
 
 @bp.route('/admin/kbs/<int:kb_id>/qa/rebuild-index', methods=['POST'])

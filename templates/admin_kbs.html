@@ -89,11 +89,27 @@
             </td>
             <td>
                 {% if edit_kb_id == kb.kb_id %}
-                <form method="post" action="/admin/kbs/{{ kb.kb_id }}" style="display:inline-flex; gap:6px; align-items:center;">
+                {% if kb.template_type != 'qa' and kb.dify_dataset_id %}
+                <div id="edit-model-section-{{ kb.kb_id }}" style="margin-top:6px; background:#f8f9fa; border:1px solid #e9ecef; border-radius:6px; padding:8px 10px;">
+                    <div style="font-size:11px; color:#888; margin-bottom:6px;">嵌入/重排序模型</div>
+                    <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+                        <select id="edit-emb-{{ kb.kb_id }}" style="padding:3px 6px; border:1px solid #ccc; border-radius:4px; font-size:12px; width:160px;">
+                            <option value="">加载中…</option>
+                        </select>
+                        <select id="edit-rerank-{{ kb.kb_id }}" style="padding:3px 6px; border:1px solid #ccc; border-radius:4px; font-size:12px; width:160px;">
+                            <option value="">加载中…</option>
+                        </select>
+                    </div>
+                </div>
+                <script>document.addEventListener('DOMContentLoaded', function() { loadEditModelConfig({{ kb.kb_id }}); });</script>
+                {% endif %}
+                <form method="post" action="/admin/kbs/{{ kb.kb_id }}" style="display:flex; flex-wrap:wrap; gap:4px; align-items:center; margin-top:4px; max-width:100%;">
                     <input name="kb_name" value="{{ kb.kb_name }}" required style="padding:4px 8px; border:1px solid #ddd; border-radius:4px; font-size:13px; width:120px;">
                     <input name="description" value="{{ kb.description or '' }}" placeholder="描述" style="padding:4px 8px; border:1px solid #ddd; border-radius:4px; font-size:13px; width:200px;">
-                    <button type="submit" class="btn btn-primary" style="padding:4px 12px; font-size:12px;">保存</button>
-                    <a href="/admin/kbs" class="btn btn-secondary" style="padding:4px 12px; font-size:12px;">取消</a>
+                    <input type="hidden" name="embedding_model" id="edit-emb-val-{{ kb.kb_id }}">
+                    <input type="hidden" name="reranking_model" id="edit-rerank-val-{{ kb.kb_id }}">
+                    <button type="submit" class="btn btn-primary" style="padding:4px 12px; font-size:12px; flex-shrink:0;" onclick="document.getElementById('edit-emb-val-{{ kb.kb_id }}').value=document.getElementById('edit-emb-{{ kb.kb_id }}').value; document.getElementById('edit-rerank-val-{{ kb.kb_id }}').value=document.getElementById('edit-rerank-{{ kb.kb_id }}').value;">保存</button>
+                    <a href="/admin/kbs" class="btn btn-secondary" style="padding:4px 12px; font-size:12px; flex-shrink:0;">取消</a>
                 </form>
                 {% else %}
                 {% if kb.kb_id in manageable_kb_ids %}
@@ -802,6 +818,73 @@ async function deleteDoc(kbId, docId) {
     } catch (e) {
         alert('删除失败: ' + e.message);
     }
+}
+
+function loadEditModelConfig(kbId) {
+    fetch(`/admin/kbs/${kbId}/models`)
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) {
+                document.getElementById('edit-emb-' + kbId).innerHTML = '<option value="">加载失败</option>';
+                document.getElementById('edit-rerank-' + kbId).innerHTML = '<option value="">加载失败</option>';
+                return;
+            }
+            // Embedding select
+            const embSel = document.getElementById('edit-emb-' + kbId);
+            embSel.innerHTML = '<option value="">使用当前配置</option>';
+            data.embedding_models.forEach(m => {
+                const opt = document.createElement('option');
+                opt.value = m.provider + '/' + m.model;
+                opt.textContent = m.label + ' (' + m.model + ')';
+                if (m.model === data.current_embedding && m.provider === data.current_embedding_provider) opt.selected = true;
+                embSel.appendChild(opt);
+            });
+            // Reranking select
+            const rerSel = document.getElementById('edit-rerank-' + kbId);
+            rerSel.innerHTML = '<option value="">不使用重排序</option>';
+            data.reranking_models.forEach(m => {
+                const opt = document.createElement('option');
+                opt.value = m.provider + '/' + m.model;
+                opt.textContent = m.label + ' (' + m.model + ')';
+                if (m.model === data.current_reranking && m.provider === data.current_reranking_provider) opt.selected = true;
+                rerSel.appendChild(opt);
+            });
+        })
+        .catch(() => {
+            document.getElementById('edit-emb-' + kbId).innerHTML = '<option value="">加载失败</option>';
+            document.getElementById('edit-rerank-' + kbId).innerHTML = '<option value="">加载失败</option>';
+        });
+}
+
+function saveKBRerankModel(kbId) {
+    const embSel = document.getElementById('edit-emb-' + kbId);
+    const rerSel = document.getElementById('edit-rerank-' + kbId);
+    const msg = document.getElementById('edit-model-msg-' + kbId);
+    const btn = event.target;
+    btn.disabled = true;
+    btn.textContent = '保存中…';
+    msg.textContent = '';
+    fetch(`/admin/kbs/${kbId}/models`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            embedding_model: embSel.value,
+            reranking_model: rerSel.value,
+        })
+    })
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) {
+                msg.style.color = '#c00';
+                msg.textContent = '保存失败';
+            } else {
+                msg.style.color = '#1e7e34';
+                msg.textContent = '已保存';
+                setTimeout(() => { msg.textContent = ''; }, 3000);
+            }
+        })
+        .catch(() => { msg.style.color = '#c00'; msg.textContent = '请求失败'; })
+        .finally(() => { btn.disabled = false; btn.textContent = '保存模型'; });
 }
 </script>
 {% endblock %}
