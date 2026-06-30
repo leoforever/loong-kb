@@ -1,0 +1,33 @@
+dify:
+  api_key: dataset-BO8tHRQFbzGXoTPHwug2m8Tv
+  api_url: http://10.40.65.209/v1
+llm:
+  provider: minimax
+  max_tokens: 2048
+minimax:
+  type: minimax
+  api_key: sk-cp-y9ug7YXhMLKAKNInElDGLnzqGZCWtIvYZVwFweFg-dLtsEGIcVtoRPcyRKuXfT-WrOe923J4qnkyWwFXnqVAfh8_kmxNCXiY_bR6oYVWwfkQFDhMBbOObKI
+  base_url: https://api.minimaxi.com/anthropic
+  model: MiniMax-M2.7
+qwen:
+  type: qwen
+  base_url: http://10.40.65.220:8080/qwen3_5
+  model: Qwen3.5-27B-W8A8
+server:
+  host: 0.0.0.0
+  port: 5001
+embedding:
+  provider: siliconflow
+  ollama:
+    url: http://127.0.0.1:11434/api/embeddings
+    model: bge-m3:latest
+  siliconflow:
+    api_key: sk-krjrsyxaoyiumdrdublabcptjtiqtchhufuznmmxczywvhmf
+    model: BAAI/bge-m3
+reranker:
+  provider: siliconflow
+  score_threshold: 0.3
+  siliconflow:
+    api_key: sk-krjrsyxaoyiumdrdublabcptjtiqtchhufuznmmxczywvhmf
+    model: BAAI/bge-reranker-v2-m3
+    base_url: https://api.siliconflow.cn
